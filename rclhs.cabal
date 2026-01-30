@@ -27,6 +27,131 @@ library
     include-dirs:     c-wrap
     c-sources:        c-wrap/wrap.c
     includes:         wrap.h
+    
+    include-dirs:     c-wrap
+                      -- brute force approach lol 
+                      /opt/ros/kilted/include/tf2_bullet
+                      /opt/ros/kilted/include/rmw
+                      /opt/ros/kilted/include/trajectory_msgs
+                      /opt/ros/kilted/include/tracetools
+                      /opt/ros/kilted/include/mcap_vendor
+                      /opt/ros/kilted/include/rcl_yaml_param_parser
+                      /opt/ros/kilted/include/rviz_rendering
+                      /opt/ros/kilted/include/pluginlib
+                      /opt/ros/kilted/include/rosbag2_interfaces
+                      /opt/ros/kilted/include/laser_geometry
+                      /opt/ros/kilted/include/rosidl_runtime_cpp
+                      /opt/ros/kilted/include/rclc
+                      /opt/ros/kilted/include/rmw_fastrtps_shared_cpp
+                      /opt/ros/kilted/include/action_msgs
+                      /opt/ros/kilted/include/shape_msgs
+                      /opt/ros/kilted/include/image_geometry
+                      /opt/ros/kilted/include/rcl_interfaces
+                      /opt/ros/kilted/include/rosidl_typesupport_interface
+                      /opt/ros/kilted/include/tf2_kdl
+                      /opt/ros/kilted/include/tf2_ros
+                      /opt/ros/kilted/include/rosidl_typesupport_introspection_cpp
+                      /opt/ros/kilted/include/rcl_action
+                      /opt/ros/kilted/include/rcl_lifecycle
+                      /opt/ros/kilted/include/lifecycle_msgs
+                      /opt/ros/kilted/include/rviz_common
+                      /opt/ros/kilted/include/fastdds
+                      /opt/ros/kilted/include/kdl_parser
+                      /opt/ros/kilted/include/urdfdom_headers
+                      /opt/ros/kilted/include/rclcpp_action
+                      /opt/ros/kilted/include/map_msgs
+                      /opt/ros/kilted/include/libstatistics_collector
+                      /opt/ros/kilted/include/rosidl_typesupport_fastrtps_cpp
+                      /opt/ros/kilted/include/rmw_security_common
+                      /opt/ros/kilted/include/tf2_sensor_msgs
+                      /opt/ros/kilted/include/resource_retriever
+                      /opt/ros/kilted/include/rosbag2_storage_sqlite3
+                      /opt/ros/kilted/include/sensor_msgs
+                      /opt/ros/kilted/include/interactive_markers
+                      /opt/ros/kilted/include/service_msgs
+                      /opt/ros/kilted/include/diagnostic_msgs
+                      /opt/ros/kilted/include/fastcdr
+                      /opt/ros/kilted/include/robot_state_publisher
+                      /opt/ros/kilted/include/logging_demo
+                      /opt/ros/kilted/include/rviz_default_plugins
+                      /opt/ros/kilted/include/rclcpp_lifecycle
+                      /opt/ros/kilted/include/rosidl_typesupport_cpp
+                      /opt/ros/kilted/include/qt_gui_cpp
+                      /opt/ros/kilted/include/angles
+                      /opt/ros/kilted/include/unique_identifier_msgs
+                      /opt/ros/kilted/include/tf2_eigen
+                      /opt/ros/kilted/include/tf2_geometry_msgs
+                      /opt/ros/kilted/include/pcl_msgs
+                      /opt/ros/kilted/include/pcl_conversions
+                      /opt/ros/kilted/include/composition_interfaces
+                      /opt/ros/kilted/include/turtlesim_msgs
+                      /opt/ros/kilted/include/rmw_test_fixture
+                      /opt/ros/kilted/include/keyboard_handler
+                      /opt/ros/kilted/include/rmw_fastrtps_cpp
+                      /opt/ros/kilted/include/visualization_msgs
+                      /opt/ros/kilted/include/rosidl_dynamic_typesupport
+                      /opt/ros/kilted/include/rosbag2_compression_zstd
+                      /opt/ros/kilted/include/rosbag2_compression
+                      /opt/ros/kilted/include/foonathan_memory
+                      /opt/ros/kilted/include/std_msgs
+                      /opt/ros/kilted/include/rclcpp
+                      /opt/ros/kilted/include/rclcpp_components
+                      /opt/ros/kilted/include/intra_process_demo
+                      /opt/ros/kilted/include/image_tools
+                      /opt/ros/kilted/include/rosidl_typesupport_fastrtps_c
+                      /opt/ros/kilted/include/rosbag2_transport
+                      /opt/ros/kilted/include/class_loader
+                      /opt/ros/kilted/include/rcpputils
+                      /opt/ros/kilted/include/rqt_gui_cpp
+                      /opt/ros/kilted/include/statistics_msgs
+                      /opt/ros/kilted/include/tf2_msgs
+                      /opt/ros/kilted/include/joy
+                      /opt/ros/kilted/include/ament_index_cpp
+                      /opt/ros/kilted/include/rosbag2_cpp
+                      /opt/ros/kilted/include/rqt_image_view
+                      /opt/ros/kilted/include/pendulum_msgs
+                      /opt/ros/kilted/include/urdfdom
+                      /opt/ros/kilted/include/point_cloud_transport
+                      /opt/ros/kilted/include/rttest
+                      /opt/ros/kilted/include/stereo_msgs
+                      /opt/ros/kilted/include/builtin_interfaces
+                      /opt/ros/kilted/include/depthimage_to_laserscan
+                      /opt/ros/kilted/include/nav_msgs
+                      /opt/ros/kilted/include/tf2
+                      /opt/ros/kilted/include/std_srvs
+                      /opt/ros/kilted/include/rviz_resource_interfaces
+                      /opt/ros/kilted/include/rosidl_dynamic_typesupport_fastrtps
+                      /opt/ros/kilted/include/rmw_dds_common
+                      /opt/ros/kilted/include/example_interfaces
+                      /opt/ros/kilted/include/rcl
+                      /opt/ros/kilted/include/urdf_parser_plugin
+                      /opt/ros/kilted/include/teleop_twist_joy
+                      /opt/ros/kilted/include/type_description_interfaces
+                      /opt/ros/kilted/include/geometry_msgs
+                      /opt/ros/kilted/include/tf2_eigen_kdl
+                      /opt/ros/kilted/include/rcutils
+                      /opt/ros/kilted/include/actionlib_msgs
+                      /opt/ros/kilted/include/tlsf_cpp
+                      /opt/ros/kilted/include/rosidl_typesupport_c
+                      /opt/ros/kilted/include/rosbag2_storage
+                      /opt/ros/kilted/include/rosidl_typesupport_introspection_c
+                      /opt/ros/kilted/include/image_transport
+                      /opt/ros/kilted/include/urdf
+                      /opt/ros/kilted/include/rcl_logging_interface
+                      /opt/ros/kilted/include/tlsf
+                      /opt/ros/kilted/include/cv_bridge
+                      /opt/ros/kilted/include/rosidl_runtime_c
+                      /opt/ros/kilted/include/message_filters
+                      /opt/ros/kilted/include/rosgraph_msgs
+
+    c-sources:        c-wrap/wrap.c
+    includes:         wrap.h
+    
+    -- TODO: unhardcode the version
+    extra-lib-dirs:   /opt/ros/kilted/lib/
+
+    extra-libraries:  rcl
+                      rcutils
 
 test-suite rclhs-test
     import:           warnings

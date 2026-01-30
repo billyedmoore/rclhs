@@ -1,3 +1,5 @@
+compile_commands.json
+
 # Courtesy of https://github.com/github/gitignore/tree/main
 dist
 dist-*
