@@ -1,6 +1,3 @@
-module RclHs (someFunc) where
+module RclHs (createNode, Context, Node) where
 
-import RclHs.Bindings (c_hello)
-
-someFunc :: IO ()
-someFunc = c_hello
+import RclHs.Bindings (Context, Node, createNode)
