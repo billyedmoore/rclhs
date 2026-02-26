@@ -2,8 +2,13 @@
 #include "rcl/context.h"
 #include "rcl/init.h"
 #include "rcl/init_options.h"
+#include "rcl/node.h"
+#include "rcl/publisher.h"
 #include <stdio.h>
 #include <rcutils/error_handling.h>
+#include <rosidl_runtime_c/message_type_support_struct.h>
+#include <rosidl_runtime_c/string_functions.h>
+#include <std_msgs/msg/string.h>
 
 /*
  * Init ROS and return the new Context.
@@ -76,12 +81,12 @@ Node* create_node(const char *node_name,
                   const char *namespace,
                   Context *context){
     rcl_ret_t return_code = RCL_RET_OK;
-    rcl_node_t rcl_node = rcl_get_zero_initialized_node();
-    rcl_node_options_t node_opt = rcl_node_get_default_options();
-    return_code = rcl_node_init(&rcl_node,node_name,namespace,&context->context,&node_opt);
 
     Node *node = malloc(sizeof(Node));
-    node->node = rcl_node;
+    node->node =  rcl_get_zero_initialized_node();
+    rcl_node_options_t node_opt = rcl_node_get_default_options();
+    return_code = rcl_node_init(&node->node,node_name,namespace,&context->context,&node_opt);
+
 
     if (return_code != RCL_RET_OK){
         fprintf(stderr,"[C] Failed to init node (name - \"%s\", namespace - \"%s\") ERR - %s.\n",
@@ -109,3 +114,70 @@ void destroy_node(Node* node){
 
 }
 
+Publisher* create_publisher(
+                Node* node,
+                const char* topic){
+    rcl_ret_t return_code = RCL_RET_OK;
+    Publisher *pub  = malloc(sizeof(Publisher));
+    pub->publisher = rcl_get_zero_initialized_publisher();
+
+    // All data can be encoded as Strings don't you know!
+    const rosidl_message_type_support_t * string_ts = ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String);
+
+    rcl_publisher_options_t pub_options = rcl_publisher_get_default_options();
+    return_code = rcl_publisher_init(&pub->publisher, &node->node, string_ts, topic, &pub_options);
+
+
+    return pub;
+}
+
+void destroy_publisher(Node* node, Publisher* pub){
+    rcl_ret_t return_code = RCL_RET_OK;
+
+    // Does NOT fini the node just the publisher
+    return_code = rcl_publisher_fini(&pub->publisher,&node->node);
+
+    free(pub);
+
+    if (return_code != RCL_RET_OK){
+        fprintf(stderr,"[C] Failed to destory publisher, ERR - %s.\n",rcutils_get_error_string().str);
+    }
+    else {
+        printf("[C] Successfully destroyed publisher.\n");
+    }
+}
+
+// Publish a message
+// Will be a problem if the msg_content is not null-terminated but
+// it should be.
+void publish(Publisher* pub, const char* msg_content){
+    rcl_ret_t return_code = RCL_RET_OK;
+
+    std_msgs__msg__String msg;
+
+    std_msgs__msg__String__init(&msg);
+
+    bool success = rosidl_runtime_c__String__assign(&msg.data, msg_content);
+
+    if (!success){
+        fprintf(stderr,"[C] Failed to create message \"%s\".",
+                msg_content);
+        return;
+    }
+
+    return_code = rcl_publish(&pub->publisher,&msg,NULL);
+    
+    if (return_code != RCL_RET_OK){
+        fprintf(stderr,"[C] Failed to publish \"%s\" to \"%s\", ERR - %s.\n",
+                msg_content,
+                rcl_publisher_get_topic_name(&pub->publisher),
+                rcutils_get_error_string().str);
+    } else {
+        fprintf(stderr,"[C] Successfully published \"%s\" to \"%s\", ERR - %s.\n",
+                msg_content,
+                rcl_publisher_get_topic_name(&pub->publisher),
+                rcutils_get_error_string().str);
+    }
+
+    std_msgs__msg__String__fini(&msg);
+}
