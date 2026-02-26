@@ -23,6 +23,8 @@ Context* create_context(){
     return_code = rcl_init_options_init(&init_options, allocator);
 
     if (return_code != RCL_RET_OK){
+        fprintf(stderr,"[C] Failed to init init options ERR - %s.\n",
+                rcutils_get_error_string().str);
         free(context);
         return NULL; 
     }
@@ -33,7 +35,8 @@ Context* create_context(){
     if (return_code != RCL_RET_OK){
         return_code = rcl_init_options_fini(&init_options);
         if (return_code != RCL_RET_OK){
-            // TODO: log
+            fprintf(stderr,"[C] Failed to finalize init options ERR - %s.\n",
+                rcutils_get_error_string().str);
         }
         free(context);
         return NULL;
@@ -57,11 +60,13 @@ void shutdown_context(Context* context){
 
     return_code = rcl_shutdown(&context->context);
     if (return_code != RCL_RET_OK){
-        // TODO: log
+        fprintf(stderr,"[C] Failed to shutdown ERR - %s.\n",
+            rcutils_get_error_string().str);
     }
     return_code = rcl_context_fini(&context->context);
     if (return_code != RCL_RET_OK){
-        // TODO: log
+        fprintf(stderr,"[C] Failed to finalize context ERR - %s.\n",
+            rcutils_get_error_string().str);
     }
 
     free(context);
@@ -99,7 +104,7 @@ void destroy_node(Node* node){
         fprintf(stderr,"[C] Failed to destory node, ERR - %s.\n",rcutils_get_error_string().str);
     }
     else {
-        printf("[C] Successfully destoryed node.\n");
+        printf("[C] Successfully destroyed node.\n");
     }
 
 }
