@@ -152,9 +152,16 @@ library
     -- TODO: unhardcode the version
     extra-lib-dirs:   /opt/ros/kilted/lib/
 
-    extra-libraries:  rcl
+    extra-libraries:  rcl 
                       rcutils
-
+                      rmw
+                      rmw_implementation
+                      rosidl_runtime_c
+                      rosidl_typesupport_c
+                      rosidl_typesupport_introspection_c
+                      std_msgs__rosidl_generator_c
+                      std_msgs__rosidl_typesupport_c
+                      std_msgs__rosidl_typesupport_introspection_c
 test-suite rclhs-test
     import:           warnings
     default-language: GHC2021

@@ -1,3 +1,3 @@
-module RclHs (createNode, createContext, Context, Node) where
+module RclHs (publish, createPublisher, createNode, createContext, Context, Node) where
 
-import RclHs.Bindings (Context, Node, createContext, createNode)
+import RclHs.Bindings (Context, Node, createContext, createNode, createPublisher, publish)
