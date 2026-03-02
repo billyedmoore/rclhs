@@ -4,6 +4,7 @@
 #include "rcl/init_options.h"
 #include "rcl/node.h"
 #include "rcl/publisher.h"
+#include "rcl/subscription.h"
 #include <stdio.h>
 #include <rcutils/error_handling.h>
 #include <rosidl_runtime_c/message_type_support_struct.h>
@@ -127,6 +128,12 @@ Publisher* create_publisher(
     rcl_publisher_options_t pub_options = rcl_publisher_get_default_options();
     return_code = rcl_publisher_init(&pub->publisher, &node->node, string_ts, topic, &pub_options);
 
+    if (return_code != RCL_RET_OK){
+        fprintf(stderr,"[C] Failed to init publisher, ERR - %s.\n",rcutils_get_error_string().str);
+        destroy_publisher(node, pub);
+        return NULL;
+    }
+
 
     return pub;
 }
@@ -147,7 +154,54 @@ void destroy_publisher(Node* node, Publisher* pub){
     }
 }
 
-// Publish a message
+Subscription* create_subscription(
+                Node* node,
+                const char* topic,
+                string_callback_t callback){
+    rcl_ret_t return_code = RCL_RET_OK;
+    Subscription *sub  = malloc(sizeof(Subscription));
+    sub->subscription = rcl_get_zero_initialized_subscription();
+
+    // (some say) strings are all you need (they are wrong)
+    const rosidl_message_type_support_t * string_ts = ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String);
+    
+    rcl_subscription_options_t sub_options = rcl_subscription_get_default_options();
+
+    return_code = rcl_subscription_init(&sub->subscription, &node->node, string_ts, topic, &sub_options);
+
+    if (return_code != RCL_RET_OK){
+        fprintf(stderr,"[C] Failed to init subscription, ERR - %s.\n",rcutils_get_error_string().str);
+        destroy_subscription(node, sub);
+        return NULL;
+    }
+
+    sub->callback = callback;
+    
+    // NOTE: Testing purposes only, to be called from spin()
+    callback("Some recieved message!");
+
+    return sub;
+}
+
+void destroy_subscription(Node* node, Subscription* sub){
+    // NOTE: Subscription is not responsible for the callback,
+    //       it is allocated and freed from Haskell world.
+    rcl_ret_t return_code = RCL_RET_OK;
+
+    // Does NOT fini the node just the sub
+    return_code = rcl_subscription_fini(&sub->subscription, &node->node);
+
+    free(sub);
+
+    if (return_code != RCL_RET_OK){
+        fprintf(stderr,"[C] Failed to destory subscription, ERR - %s.\n",rcutils_get_error_string().str);
+    }
+    else {
+        printf("[C] Successfully destroyed subscription.\n");
+    }
+}
+
+// Publish a message (fire and forget)
 // Will be a problem if the msg_content is not null-terminated but
 // it should be.
 void publish(Publisher* pub, const char* msg_content){
