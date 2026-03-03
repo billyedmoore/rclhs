@@ -35,6 +35,7 @@ typedef struct {
 
 typedef struct {
     rcl_timer_t timer;
+    rcl_clock_t clock; 
     timer_callback_t callback;
 } Timer;
 
@@ -67,5 +68,11 @@ void destroy_timer(Timer* timer);
 Context* create_context();
 
 void shutdown_context(Context* context);
+
+void spin(Context* context,
+          void** subs,
+          size_t n_subs,
+          void** timers,
+          size_t n_timers);
 
 #endif

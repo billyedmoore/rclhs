@@ -6,7 +6,10 @@
 #include "rcl/node.h"
 #include "rcl/publisher.h"
 #include "rcl/subscription.h"
+#include "rcl/time.h"
 #include "rcl/timer.h"
+#include "rcl/types.h"
+#include "rcl/wait.h"
 #include <stdio.h>
 #include <rcutils/error_handling.h>
 #include <rosidl_runtime_c/message_type_support_struct.h>
@@ -98,7 +101,7 @@ Node* create_node(const char *node_name,
         return NULL;
     }
     
-    printf("[C] Successfully created node.\n");
+    fprintf(stderr,"[C] Successfully created node.\n");
 
     return node;
 }
@@ -112,7 +115,7 @@ void destroy_node(Node* node){
         fprintf(stderr,"[C] Failed to destroy node, ERR - %s.\n",rcutils_get_error_string().str);
     }
     else {
-        printf("[C] Successfully destroyed node.\n");
+        fprintf(stderr,"[C] Successfully destroyed node.\n");
     }
 
 }
@@ -152,7 +155,7 @@ void destroy_publisher(Node* node, Publisher* pub){
         fprintf(stderr,"[C] Failed to destroy publisher, ERR - %s.\n",rcutils_get_error_string().str);
     }
     else {
-        printf("[C] Successfully destroyed publisher.\n");
+        fprintf(stderr,"[C] Successfully destroyed publisher.\n");
     }
 }
 
@@ -179,9 +182,6 @@ Subscription* create_subscription(
 
     sub->callback = callback;
     
-    // NOTE: Testing purposes only, to be called from spin()
-    callback("Some recieved message!");
-
     return sub;
 }
 
@@ -199,7 +199,7 @@ void destroy_subscription(Node* node, Subscription* sub){
         fprintf(stderr,"[C] Failed to destroy subscription, ERR - %s.\n",rcutils_get_error_string().str);
     }
     else {
-        printf("[C] Successfully destroyed subscription.\n");
+        fprintf(stderr,"[C] Successfully destroyed subscription.\n");
     }
 }
 
@@ -216,21 +216,22 @@ Timer* create_timer(Context *context,
                     uint64_t period){
     rcl_ret_t return_code = RCL_RET_OK;
 
-    rcl_clock_t clock;
     rcl_allocator_t allocator = rcl_get_default_allocator();
-    rcl_ret_t rc = rcl_clock_init(RCL_STEADY_TIME, &clock, &allocator);
 
     Timer *timer = malloc(sizeof(Timer));
+
+    rcl_ret_t rc = rcl_clock_init(RCL_SYSTEM_TIME, &timer->clock, &allocator);
+
     timer->timer =  rcl_get_zero_initialized_timer();
     timer->callback = callback;
     rcl_node_options_t node_opt = rcl_node_get_default_options();
     return_code = rcl_timer_init2(&timer->timer,
-                    &clock,
+                    &timer->clock,
                     &context->context,
                     period,
                     nop_timer_callback,
                     allocator,
-                    false);
+                    true);
 
     if (return_code != RCL_RET_OK){
         fprintf(stderr,"[C] Failed to init timer ERR - %s.\n",
@@ -239,10 +240,7 @@ Timer* create_timer(Context *context,
         return NULL;
     }
     
-    printf("[C] Successfully created timer.\n");
-
-    // NOTE: Testing purposes only, to be called from spin()
-    callback();
+    fprintf(stderr,"[C] Successfully created timer.\n");
 
     return timer;
 }
@@ -258,7 +256,7 @@ void destroy_timer(Timer* timer){
         fprintf(stderr,"[C] Failed to destroy timer, ERR - %s.\n",rcutils_get_error_string().str);
     }
     else {
-        printf("[C] Successfully destroyed timer.\n");
+        fprintf(stderr,"[C] Successfully destroyed timer.\n");
     }
     
 }
@@ -289,11 +287,95 @@ void publish(Publisher* pub, const char* msg_content){
                 rcl_publisher_get_topic_name(&pub->publisher),
                 rcutils_get_error_string().str);
     } else {
-        fprintf(stderr,"[C] Successfully published \"%s\" to \"%s\", ERR - %s.\n",
+        fprintf(stderr,"[C] Successfully published \"%s\" to \"%s\"\n",
                 msg_content,
-                rcl_publisher_get_topic_name(&pub->publisher),
-                rcutils_get_error_string().str);
+                rcl_publisher_get_topic_name(&pub->publisher));
     }
 
     std_msgs__msg__String__fini(&msg);
+}
+
+void check_return_code(rcl_ret_t rc, const char* f_name){
+
+    if (rc != RCL_RET_OK && rc != RCL_RET_TIMEOUT){
+        fprintf(stderr,"[C] ERR - %s (%s) %i.\n",
+                rcutils_get_error_string().str,
+                f_name,
+                rc);
+    }
+}
+
+
+void spin(Context* context,
+          void** v_subs,
+          size_t n_subs,
+          void** v_timers,
+          size_t n_timers){
+    
+    // GHC wants to pass void** but we need Subscription** and Timer**
+    Subscription ** subs = (Subscription **) v_subs;
+    Timer** timers = (Timer **) v_timers;
+
+    rcl_ret_t return_code = RCL_RET_OK;
+    rcl_allocator_t allocator = rcl_get_default_allocator();
+
+    rcl_wait_set_t wait_set = rcl_get_zero_initialized_wait_set();
+
+    return_code = rcl_wait_set_init(&wait_set,n_subs,0,n_timers,
+                                    0,0,0,&context->context,allocator);
+    
+    check_return_code(return_code,"wait_set_inti");
+
+
+    fprintf(stderr, "[C] Began Spinning!\n");
+
+    while (rcl_context_is_valid(&context->context)){
+        // each wait resets the wait_set it seems
+        return_code = rcl_wait_set_clear(&wait_set);
+        check_return_code(return_code,"ws_clear");
+
+        for (size_t i = 0; i < n_subs; i++){
+            return_code = rcl_wait_set_add_subscription(&wait_set, &subs[i]->subscription, NULL);
+            check_return_code(return_code,"add_sub");
+        }
+        for (size_t i = 0; i < n_timers; i++){
+            return_code = rcl_wait_set_add_timer(&wait_set, &timers[i]->timer, NULL);
+            check_return_code(return_code,"add_timer");
+        }
+    
+        // Block until something happens or timeout
+        return_code = rcl_wait(&wait_set,RCL_MS_TO_NS(1000));
+        check_return_code(return_code,"wait");
+    
+        // Execute any ready timers
+        for (size_t i = 0; i < n_timers; i++) {
+            if (wait_set.timers[i] != NULL) {
+                fprintf(stderr,"[C] Triggering timer %zu\n",i);
+                timers[i]->callback();
+                return_code = rcl_timer_call(&timers[i]->timer);
+                check_return_code(return_code,"timer_call");
+            }
+        }
+
+        for (size_t i = 0; i < n_subs; i++) {
+            if (wait_set.subscriptions[i] != NULL){
+                // Yet again we hardcode String type
+                std_msgs__msg__String msg;
+                std_msgs__msg__String__init(&msg);
+
+                rmw_message_info_t msg_info;
+
+                return_code = rcl_take(wait_set.subscriptions[i],&msg,&msg_info,NULL);
+                check_return_code(return_code,"take");
+
+                fprintf(stderr,"[C] Successfully receieved (subed) \"%s\" from \"%s\"\n",
+                msg.data.data,
+                rcl_subscription_get_topic_name(wait_set.subscriptions[i]));
+
+                subs[i]->callback(msg.data.data);
+
+                std_msgs__msg__String__fini(&msg);
+            }
+        }
+    }
 }
