@@ -1,24 +1,19 @@
 module Main (main) where
 
-import Control.Concurrent (threadDelay)
 import RclHs
-  ( createContext,
-    createNode,
-    createPublisher,
-    createSubscription,
-    createTimer,
-    publish,
+  ( publish,
+    withContext,
+    withNode,
+    withPublisher,
+    withSubscription,
+    withTimer,
   )
-import System.Mem (performGC)
 
 main :: IO ()
 main = do
-  ctx <- createContext
-  node <- createNode "hello" "" ctx
-  pub <- createPublisher "hello" node
-  _ <- createSubscription "hello" node (putStrLn . take 80 . cycle . (++ " "))
-  _ <- createTimer ctx (publish pub "Hello World") 10000
-
-  publish pub "Hello World!"
-  threadDelay 10000
-  performGC
+  withContext $ \ctx -> do
+    withNode "hello" "" ctx $ \node -> do
+      withPublisher "hello" node $ \pub -> do
+        publish pub "Hello World!"
+        withTimer ctx (publish pub "Hello World") 10000 (\_ -> pure ())
+        withSubscription "hello" node (putStrLn . take 80 . cycle . (++ " ")) (\_ -> pure ())

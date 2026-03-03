@@ -1,22 +1,18 @@
 module RclHs
   ( publish,
-    createSubscription,
-    createPublisher,
-    createNode,
-    createContext,
-    createTimer,
-    Context,
-    Node,
+    withSubscription,
+    withPublisher,
+    withNode,
+    withContext,
+    withTimer,
   )
 where
 
 import RclHs.Bindings
-  ( Context,
-    Node,
-    createContext,
-    createNode,
-    createPublisher,
-    createSubscription,
-    createTimer,
-    publish,
+  ( publish,
+    withContext,
+    withNode,
+    withPublisher,
+    withSubscription,
+    withTimer,
   )
