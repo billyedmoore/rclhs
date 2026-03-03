@@ -5,6 +5,7 @@ module RclHs.Bindings
     Publisher,
     Subscription,
     Timer,
+    spin,
     withContext,
     withNode,
     withPublisher,
@@ -16,7 +17,8 @@ where
 import Control.Exception (bracket)
 import Data.Word (Word64)
 import Foreign (FunPtr, Ptr, freeHaskellFunPtr)
-import Foreign.C (CString, peekCString, withCString)
+import Foreign.C (CSize (..), CString, peekCString, withCString)
+import Foreign.Marshal.Array (withArrayLen)
 
 -- Opaque types
 data Node
@@ -56,7 +58,9 @@ foreign import capi "wrap.h create_timer" c_createTimer :: Ptr Context -> FunPtr
 
 foreign import capi "wrap.h destroy_timer" c_destoryTimer :: Ptr Timer -> IO ()
 
--- Magic function to get a FunPtr from a Haskell function
+foreign import capi "wrap.h spin" c_spin :: Ptr Context -> Ptr (Ptr Subscription) -> CSize -> Ptr (Ptr Timer) -> CSize -> IO ()
+
+-- "wrapper" is a special function to get a FunPtr from a Haskell function
 foreign import ccall "wrapper" c_getStringFunctionPtr :: (CString -> IO ()) -> IO (FunPtr (CString -> IO ()))
 
 foreign import ccall "wrapper" c_getTimerFunctionPtr :: IO () -> IO (FunPtr (IO ()))
@@ -65,6 +69,12 @@ publish :: Ptr Publisher -> String -> IO ()
 publish publisher message =
   withCString message $ \c_message ->
     c_publish publisher c_message
+
+spin :: Ptr Context -> [Ptr Subscription] -> [Ptr Timer] -> IO ()
+spin context subs timers =
+  withArrayLen subs $ \n_subs c_subs ->
+    withArrayLen timers $ \n_timers c_timers ->
+      c_spin context c_subs (fromIntegral n_subs) c_timers (fromIntegral n_timers)
 
 toCFunc :: (String -> IO ()) -> (CString -> IO ())
 toCFunc f c_str = do
@@ -105,3 +115,5 @@ withTimer context callback period action =
   bracket (c_getTimerFunctionPtr callback) freeHaskellFunPtr $ \c_callback ->
     bracket (c_createTimer context c_callback period) c_destoryTimer $ \timer ->
       action timer
+
+-- spin [Ptr Timer] [Ptr Subscription]
