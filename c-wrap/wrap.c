@@ -1,10 +1,12 @@
 #include "wrap.h"
+#include "rcl/allocator.h"
 #include "rcl/context.h"
 #include "rcl/init.h"
 #include "rcl/init_options.h"
 #include "rcl/node.h"
 #include "rcl/publisher.h"
 #include "rcl/subscription.h"
+#include "rcl/timer.h"
 #include <stdio.h>
 #include <rcutils/error_handling.h>
 #include <rosidl_runtime_c/message_type_support_struct.h>
@@ -107,7 +109,7 @@ void destroy_node(Node* node){
     free(node);
 
     if (return_code != RCL_RET_OK){
-        fprintf(stderr,"[C] Failed to destory node, ERR - %s.\n",rcutils_get_error_string().str);
+        fprintf(stderr,"[C] Failed to destroy node, ERR - %s.\n",rcutils_get_error_string().str);
     }
     else {
         printf("[C] Successfully destroyed node.\n");
@@ -147,7 +149,7 @@ void destroy_publisher(Node* node, Publisher* pub){
     free(pub);
 
     if (return_code != RCL_RET_OK){
-        fprintf(stderr,"[C] Failed to destory publisher, ERR - %s.\n",rcutils_get_error_string().str);
+        fprintf(stderr,"[C] Failed to destroy publisher, ERR - %s.\n",rcutils_get_error_string().str);
     }
     else {
         printf("[C] Successfully destroyed publisher.\n");
@@ -194,16 +196,76 @@ void destroy_subscription(Node* node, Subscription* sub){
     free(sub);
 
     if (return_code != RCL_RET_OK){
-        fprintf(stderr,"[C] Failed to destory subscription, ERR - %s.\n",rcutils_get_error_string().str);
+        fprintf(stderr,"[C] Failed to destroy subscription, ERR - %s.\n",rcutils_get_error_string().str);
     }
     else {
         printf("[C] Successfully destroyed subscription.\n");
     }
 }
 
+
+// Timer callback is not directly used so this is a nop placeholder. 
+void nop_timer_callback(rcl_timer_t * timer, long last_call_time) {
+    // shh the compiler
+    (void)timer;
+    (void)last_call_time;
+}
+
+Timer* create_timer(Context *context,
+                    timer_callback_t callback,
+                    uint64_t period){
+    rcl_ret_t return_code = RCL_RET_OK;
+
+    rcl_clock_t clock;
+    rcl_allocator_t allocator = rcl_get_default_allocator();
+    rcl_ret_t rc = rcl_clock_init(RCL_STEADY_TIME, &clock, &allocator);
+
+    Timer *timer = malloc(sizeof(Timer));
+    timer->timer =  rcl_get_zero_initialized_timer();
+    timer->callback = callback;
+    rcl_node_options_t node_opt = rcl_node_get_default_options();
+    return_code = rcl_timer_init2(&timer->timer,
+                    &clock,
+                    &context->context,
+                    period,
+                    nop_timer_callback,
+                    allocator,
+                    false);
+
+    if (return_code != RCL_RET_OK){
+        fprintf(stderr,"[C] Failed to init timer ERR - %s.\n",
+                rcutils_get_error_string().str);
+        destroy_timer(timer);
+        return NULL;
+    }
+    
+    printf("[C] Successfully created timer.\n");
+
+    // NOTE: Testing purposes only, to be called from spin()
+    callback();
+
+    return timer;
+}
+
+void destroy_timer(Timer* timer){
+    rcl_ret_t return_code = RCL_RET_OK;
+
+    return_code = rcl_timer_fini(&timer->timer);
+
+    free(timer);
+
+    if (return_code != RCL_RET_OK){
+        fprintf(stderr,"[C] Failed to destroy timer, ERR - %s.\n",rcutils_get_error_string().str);
+    }
+    else {
+        printf("[C] Successfully destroyed timer.\n");
+    }
+    
+}
+
+
 // Publish a message (fire and forget)
-// Will be a problem if the msg_content is not null-terminated but
-// it should be.
+// msg_content will be null_terminated since it is a CString.
 void publish(Publisher* pub, const char* msg_content){
     rcl_ret_t return_code = RCL_RET_OK;
 
