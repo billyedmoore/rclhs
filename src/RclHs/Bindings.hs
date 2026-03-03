@@ -4,17 +4,21 @@ module RclHs.Bindings
     createContext,
     createPublisher,
     createSubscription,
+    createTimer,
     Node,
     Context,
   )
 where
 
+import Data.Word (Word64)
 import Foreign (ForeignPtr, FunPtr, Ptr, freeHaskellFunPtr, newForeignPtr, touchForeignPtr, withForeignPtr)
 import Foreign.C (CString, peekCString, withCString)
 import Foreign.Concurrent qualified as FC
 
 -- Opaque types
 data Node
+
+data Timer
 
 data Context
 
@@ -45,7 +49,14 @@ foreign import capi "wrap.h create_context" c_createContextRawPtr :: IO (Ptr Con
 
 foreign import capi "wrap.h &shutdown_context" c_shutdownContextRawPtr :: FunPtr (Ptr Context -> IO ())
 
-foreign import ccall "wrapper" c_getFunctionPtr :: (CString -> IO ()) -> IO (FunPtr (CString -> IO ()))
+foreign import capi "wrap.h create_timer" c_createTimer :: Ptr Context -> FunPtr (IO ()) -> Word64 -> IO (Ptr Timer)
+
+foreign import capi "wrap.h destroy_timer" c_destoryTimer :: Ptr Timer -> IO ()
+
+-- Magic function to get a FunPtr from a Haskell function
+foreign import ccall "wrapper" c_getStringFunctionPtr :: (CString -> IO ()) -> IO (FunPtr (CString -> IO ()))
+
+foreign import ccall "wrapper" c_getTimerFunctionPtr :: IO () -> IO (FunPtr (IO ()))
 
 createNode :: String -> String -> ForeignPtr Context -> IO (ForeignPtr Node)
 createNode name namespace context =
@@ -73,9 +84,9 @@ createPublisher topic node =
     withForeignPtr node $ \c_node -> do
       ptr <- c_createPublisherRawPtr c_node c_topic
       FC.newForeignPtr ptr $ do
+        c_destoryPublisherRawPtr c_node ptr
         -- this enforces node living longer than its publishers
-        withForeignPtr node $ \c_node_fin ->
-          c_destoryPublisherRawPtr c_node_fin ptr
+        touchForeignPtr node
 
 publish :: ForeignPtr Publisher -> String -> IO ()
 publish publisher message =
@@ -92,10 +103,24 @@ createSubscription :: String -> ForeignPtr Node -> (String -> IO ()) -> IO (Fore
 createSubscription topic node callback =
   withCString topic $ \c_topic ->
     withForeignPtr node $ \c_node -> do
-      callbackFP <- (c_getFunctionPtr . toCFunc) callback
+      callbackFP <- (c_getStringFunctionPtr . toCFunc) callback
       ptr <- c_createSubscriptionRawPtr c_node c_topic callbackFP
       FC.newForeignPtr ptr $ do
+        c_destorySubscriptionRawPtr c_node ptr
+        freeHaskellFunPtr callbackFP
         -- this enforces node living longer than its subscribers
-        withForeignPtr node $ \c_node_fin -> do
-          c_destorySubscriptionRawPtr c_node_fin ptr
-          freeHaskellFunPtr callbackFP
+        touchForeignPtr node
+
+createTimer :: ForeignPtr Context -> IO () -> Word64 -> IO (ForeignPtr Timer)
+createTimer context callback period =
+  withForeignPtr context $ \c_context -> do
+    c_callback <- c_getTimerFunctionPtr callback
+    timer <-
+      c_createTimer
+        c_context
+        c_callback
+        period
+    FC.newForeignPtr timer $ do
+      c_destoryTimer timer
+      freeHaskellFunPtr c_callback
+      touchForeignPtr context

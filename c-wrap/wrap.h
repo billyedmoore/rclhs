@@ -1,5 +1,6 @@
 #ifndef C_WRAP_WRAP_H
 #define C_WRAP_WRAP_H
+#include "rcl/timer.h"
 #include "rcl/node.h"
 #include "rcl/publisher.h"
 #include "rcl/subscription.h"
@@ -19,8 +20,11 @@ typedef struct {
     rcl_publisher_t publisher;
 } Publisher;
 
-
+// String -> IO()
 typedef void (*string_callback_t)(const char*);
+
+// IO ()
+typedef void (*timer_callback_t)(void);
 
 // A ROS2 subscriber.
 typedef struct {
@@ -28,6 +32,11 @@ typedef struct {
     // Haskell function String -> IO ()
     string_callback_t callback;
 } Subscription;
+
+typedef struct {
+    rcl_timer_t timer;
+    timer_callback_t callback;
+} Timer;
 
 Node* create_node(const char *node_name,
                   const char *namespace,
@@ -50,6 +59,10 @@ Subscription* create_subscription(
 void destroy_subscription(Node* node, Subscription* sub);
 
 void publish(Publisher* pub, const char* msg_content);
+
+Timer* create_timer(Context *context, timer_callback_t callback, uint64_t period);
+
+void destroy_timer(Timer* timer);
 
 Context* create_context();
 

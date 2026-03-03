@@ -4,6 +4,7 @@ module RclHs
     createPublisher,
     createNode,
     createContext,
+    createTimer,
     Context,
     Node,
   )
@@ -16,5 +17,6 @@ import RclHs.Bindings
     createNode,
     createPublisher,
     createSubscription,
+    createTimer,
     publish,
   )
