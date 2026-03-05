@@ -20,11 +20,16 @@ typedef struct {
     rcl_publisher_t publisher;
 } Publisher;
 
+// Pointer owned by Haskell, normally as a StablePtr
+// To be considered as a void* in C world and only
+// passed into Haskell functions.
+typedef void* HsOwnedPtr;
+
 // String -> IO()
 typedef void (*string_callback_t)(const char*);
 
-// IO ()
-typedef void (*timer_callback_t)(void);
+// a -> IO (a)
+typedef HsOwnedPtr (*timer_callback_t)(HsOwnedPtr,bool);
 
 // A ROS2 subscriber.
 typedef struct {
@@ -37,6 +42,7 @@ typedef struct {
     rcl_timer_t timer;
     rcl_clock_t clock; 
     timer_callback_t callback;
+    HsOwnedPtr inital_acc;
 } Timer;
 
 Node* create_node(const char *node_name,
@@ -61,7 +67,8 @@ void destroy_subscription(Node* node, Subscription* sub);
 
 void publish(Publisher* pub, const char* msg_content);
 
-Timer* create_timer(Context *context, timer_callback_t callback, uint64_t period);
+Timer* create_timer(Context *context, timer_callback_t callback,
+                    uint64_t period, HsOwnedPtr inital_acc);
 
 void destroy_timer(Timer* timer);
 
