@@ -15,10 +15,12 @@ module RclHs.Bindings
 where
 
 import Control.Exception (bracket)
+import Control.Monad (when)
 import Data.Word (Word64)
-import Foreign (FunPtr, Ptr, freeHaskellFunPtr)
-import Foreign.C (CSize (..), CString, peekCString, withCString)
+import Foreign (FunPtr, Ptr, freeHaskellFunPtr, toBool)
+import Foreign.C (CBool (..), CSize (..), CString, peekCString, withCString)
 import Foreign.Marshal.Array (withArrayLen)
+import Foreign.StablePtr (StablePtr, deRefStablePtr, freeStablePtr, newStablePtr)
 
 -- Opaque types
 data Node
@@ -54,7 +56,7 @@ foreign import capi "wrap.h create_context" c_createContextRawPtr :: IO (Ptr Con
 
 foreign import capi "wrap.h shutdown_context" c_shutdownContextRawPtr :: Ptr Context -> IO ()
 
-foreign import capi "wrap.h create_timer" c_createTimer :: Ptr Context -> FunPtr (IO ()) -> Word64 -> IO (Ptr Timer)
+foreign import capi "wrap.h create_timer" c_createTimer :: Ptr Context -> FunPtr (StablePtr a -> CBool -> IO (StablePtr a)) -> Word64 -> StablePtr a -> IO (Ptr Timer)
 
 foreign import capi "wrap.h destroy_timer" c_destoryTimer :: Ptr Timer -> IO ()
 
@@ -63,13 +65,14 @@ foreign import capi "wrap.h spin" c_spin :: Ptr Context -> Ptr (Ptr Subscription
 -- "wrapper" is a special function to get a FunPtr from a Haskell function
 foreign import ccall "wrapper" c_getStringFunctionPtr :: (CString -> IO ()) -> IO (FunPtr (CString -> IO ()))
 
-foreign import ccall "wrapper" c_getTimerFunctionPtr :: IO () -> IO (FunPtr (IO ()))
+foreign import ccall "wrapper" c_getTimerFunctionPtr :: (StablePtr a -> CBool -> IO (StablePtr a)) -> IO (FunPtr (StablePtr a -> CBool -> IO (StablePtr a)))
 
 publish :: Ptr Publisher -> String -> IO ()
 publish publisher message =
   withCString message $ \c_message ->
     c_publish publisher c_message
 
+-- {-# WARNING We currently leak the last accumation state from Timer #-}
 spin :: Ptr Context -> [Ptr Subscription] -> [Ptr Timer] -> IO ()
 spin context subs timers =
   withArrayLen subs $ \n_subs c_subs ->
@@ -110,10 +113,25 @@ withSubscription topic node callback action =
           $ \sub ->
             action sub
 
-withTimer :: Ptr Context -> IO () -> Word64 -> (Ptr Timer -> IO a) -> IO a
-withTimer context callback period action =
-  bracket (c_getTimerFunctionPtr callback) freeHaskellFunPtr $ \c_callback ->
-    bracket (c_createTimer context c_callback period) c_destoryTimer $ \timer ->
-      action timer
+withTimer :: Ptr Context -> a -> (a -> IO a) -> Word64 -> (Ptr Timer -> IO b) -> IO b
+withTimer context accumInitalValue callback period action =
+  bracket
+    (newStablePtr accumInitalValue)
+    freeStablePtr
+    $ \c_initalAccum ->
+      bracket
+        (wrapTimerCallback callback)
+        freeHaskellFunPtr
+        $ \c_callback ->
+          bracket (c_createTimer context c_callback period c_initalAccum) c_destoryTimer $ \timer ->
+            action timer
 
--- spin [Ptr Timer] [Ptr Subscription]
+wrapTimerCallback :: (a -> IO a) -> IO (FunPtr (StablePtr a -> CBool -> IO (StablePtr a)))
+wrapTimerCallback callback = c_getTimerFunctionPtr wrapped
+  where
+    -- wrapped :: StablePtr a -> CBool -> IO (StablePtr a)
+    wrapped input free = do
+      val <- deRefStablePtr input
+      when (toBool free) (freeStablePtr input)
+      result <- callback val
+      newStablePtr result

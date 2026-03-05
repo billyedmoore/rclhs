@@ -139,6 +139,7 @@ Publisher* create_publisher(
         return NULL;
     }
 
+    fprintf(stderr,"[C] Successfully created publisher.\n");
 
     return pub;
 }
@@ -181,6 +182,8 @@ Subscription* create_subscription(
     }
 
     sub->callback = callback;
+
+    fprintf(stderr,"[C] Successfully created subscription.\n");
     
     return sub;
 }
@@ -213,7 +216,9 @@ void nop_timer_callback(rcl_timer_t * timer, long last_call_time) {
 
 Timer* create_timer(Context *context,
                     timer_callback_t callback,
-                    uint64_t period){
+                    uint64_t period,
+                    HsOwnedPtr inital_acc
+                    ){
     rcl_ret_t return_code = RCL_RET_OK;
 
     rcl_allocator_t allocator = rcl_get_default_allocator();
@@ -224,6 +229,7 @@ Timer* create_timer(Context *context,
 
     timer->timer =  rcl_get_zero_initialized_timer();
     timer->callback = callback;
+    timer->inital_acc = inital_acc;
     rcl_node_options_t node_opt = rcl_node_get_default_options();
     return_code = rcl_timer_init2(&timer->timer,
                     &timer->clock,
@@ -311,10 +317,15 @@ void spin(Context* context,
           size_t n_subs,
           void** v_timers,
           size_t n_timers){
-    
     // GHC wants to pass void** but we need Subscription** and Timer**
     Subscription ** subs = (Subscription **) v_subs;
     Timer** timers = (Timer **) v_timers;
+
+    HsOwnedPtr* timers_accs = malloc(sizeof(void*) * n_timers);
+
+    for (int i = 0; i < n_timers; i++){
+        timers_accs[i] = timers[i]->inital_acc;
+    }
 
     rcl_ret_t return_code = RCL_RET_OK;
     rcl_allocator_t allocator = rcl_get_default_allocator();
@@ -324,13 +335,12 @@ void spin(Context* context,
     return_code = rcl_wait_set_init(&wait_set,n_subs,0,n_timers,
                                     0,0,0,&context->context,allocator);
     
-    check_return_code(return_code,"wait_set_inti");
-
+    check_return_code(return_code,"wait_set_init");
 
     fprintf(stderr, "[C] Began Spinning!\n");
 
     while (rcl_context_is_valid(&context->context)){
-        // each wait resets the wait_set it seems
+        // each wait resets the wait_set it 
         return_code = rcl_wait_set_clear(&wait_set);
         check_return_code(return_code,"ws_clear");
 
@@ -343,15 +353,17 @@ void spin(Context* context,
             check_return_code(return_code,"add_timer");
         }
     
-        // Block until something happens or timeout
+        // Block until something happens or timeout (1000 ms)
         return_code = rcl_wait(&wait_set,RCL_MS_TO_NS(1000));
         check_return_code(return_code,"wait");
+        
     
         // Execute any ready timers
         for (size_t i = 0; i < n_timers; i++) {
             if (wait_set.timers[i] != NULL) {
                 fprintf(stderr,"[C] Triggering timer %zu\n",i);
-                timers[i]->callback();
+                bool is_not_inital_acc = timers_accs[i] != timers[i]->inital_acc;
+                timers_accs[i] = timers[i]->callback(timers_accs[i],is_not_inital_acc);
                 return_code = rcl_timer_call(&timers[i]->timer);
                 check_return_code(return_code,"timer_call");
             }
@@ -377,5 +389,17 @@ void spin(Context* context,
                 std_msgs__msg__String__fini(&msg);
             }
         }
+
+    }
+
+    free(timers_accs);
+    return_code = rcl_wait_set_fini(&wait_set);
+
+
+    if (return_code != RCL_RET_OK){
+        fprintf(stderr,"[C] Failed to destory wait-set, ERR - %s.\n",
+                rcutils_get_error_string().str);
+    } else {
+        fprintf(stderr,"[C] Successfully destroyed wait-set.\n");
     }
 }
