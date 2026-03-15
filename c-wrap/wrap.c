@@ -164,10 +164,12 @@ void destroy_publisher(Node* node, Publisher* pub){
 Subscription* create_subscription(
                 Node* node,
                 const char* topic,
+                HsOwnedPtr inital_acc,
                 string_callback_t callback){
     rcl_ret_t return_code = RCL_RET_OK;
     Subscription *sub  = malloc(sizeof(Subscription));
     sub->subscription = rcl_get_zero_initialized_subscription();
+    sub->inital_acc = inital_acc;
 
     // (some say) strings are all you need (they are wrong)
     const rosidl_message_type_support_t * string_ts = ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String);
@@ -328,6 +330,12 @@ void spin(Context* context,
         timers_accs[i] = timers[i]->inital_acc;
     }
 
+    HsOwnedPtr* subs_accs = malloc(sizeof(void*) * n_subs);
+
+    for (int i = 0; i < n_subs; i++){
+        subs_accs[i] = subs[i]->inital_acc;
+    }
+
     rcl_ret_t return_code = RCL_RET_OK;
     rcl_allocator_t allocator = rcl_get_default_allocator();
 
@@ -387,8 +395,9 @@ void spin(Context* context,
                 fprintf(stderr,"[C] Successfully receieved (subed) \"%s\" from \"%s\"\n",
                 msg.data.data,
                 rcl_subscription_get_topic_name(wait_set.subscriptions[i]));
-
-                subs[i]->callback(msg.data.data);
+                
+                bool is_not_inital_acc = subs_accs[i] != subs[i]->inital_acc;
+                subs_accs[i] = subs[i]->callback(subs_accs[i],msg.data.data,is_not_inital_acc);
 
                 std_msgs__msg__String__fini(&msg);
             }
@@ -399,6 +408,9 @@ void spin(Context* context,
     // Free the last accumulator states
     for (size_t i = 0; i < n_timers; i++){
         freeHsOwnedPtr(timers_accs[i]);
+    }
+    for (size_t i = 0; i < n_subs; i++){
+        freeHsOwnedPtr(subs_accs[i]);
     }
 
     free(timers_accs);
