@@ -84,10 +84,10 @@ subCallback str = do
 
 main :: IO ()
 main = do
-  putStrLn "Publishing CatFacts Every 5 Seconds!"
+  putStrLn "Publishing Facts Every 5 Seconds!"
   withContext $ \ctx -> do
-    withNode "hello" "" ctx $ \node -> do
-      withPublisher "hello" node $ \pub -> do
+    withNode "node_name" "" ctx $ \node -> do
+      withPublisher "topic_name" node $ \pub -> do
         withTimer ctx (-1) (pubCallback pub yorkFacts) (5 * secondInNanoSecond) $ \timer ->
-          withSubscription "hello" node subCallback $ \sub -> do
+          withSubscription "topic_name" node subCallback $ \sub -> do
             spin ctx [sub] [timer]

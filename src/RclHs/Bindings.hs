@@ -11,6 +11,7 @@ module RclHs.Bindings
     withPublisher,
     withSubscription,
     withTimer,
+    freeHsOwnedPtr,
   )
 where
 
@@ -67,12 +68,16 @@ foreign import ccall "wrapper" c_getStringFunctionPtr :: (CString -> IO ()) -> I
 
 foreign import ccall "wrapper" c_getTimerFunctionPtr :: (StablePtr a -> CBool -> IO (StablePtr a)) -> IO (FunPtr (StablePtr a -> CBool -> IO (StablePtr a)))
 
+-- Allows a HsOwnedPtr to be freed from C land
+-- Should be used sparingly
+freeHsOwnedPtr :: StablePtr a -> IO ()
+freeHsOwnedPtr = freeStablePtr
+
 publish :: Ptr Publisher -> String -> IO ()
 publish publisher message =
   withCString message $ \c_message ->
     c_publish publisher c_message
 
--- {-# WARNING We currently leak the last accumation state from Timer #-}
 spin :: Ptr Context -> [Ptr Subscription] -> [Ptr Timer] -> IO ()
 spin context subs timers =
   withArrayLen subs $ \n_subs c_subs ->

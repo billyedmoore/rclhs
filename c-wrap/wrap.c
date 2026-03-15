@@ -15,6 +15,7 @@
 #include <rosidl_runtime_c/message_type_support_struct.h>
 #include <rosidl_runtime_c/string_functions.h>
 #include <std_msgs/msg/string.h>
+#include "RclHs_stub.h"
 
 /*
  * Init ROS and return the new Context.
@@ -353,8 +354,8 @@ void spin(Context* context,
             check_return_code(return_code,"add_timer");
         }
     
-        // Block until something happens or timeout (1000 ms)
-        return_code = rcl_wait(&wait_set,RCL_MS_TO_NS(1000));
+        // Block until something happens or timeout (100 ms,i.e. 0.1 second)
+        return_code = rcl_wait(&wait_set,RCL_MS_TO_NS(100));
         check_return_code(return_code,"wait");
         
     
@@ -362,6 +363,9 @@ void spin(Context* context,
         for (size_t i = 0; i < n_timers; i++) {
             if (wait_set.timers[i] != NULL) {
                 fprintf(stderr,"[C] Triggering timer %zu\n",i);
+                // Inital acc is freed when the Timer goes out of scope
+                // This allows for multiple spins on the same timer 
+                // (each with the same initial value)
                 bool is_not_inital_acc = timers_accs[i] != timers[i]->inital_acc;
                 timers_accs[i] = timers[i]->callback(timers_accs[i],is_not_inital_acc);
                 return_code = rcl_timer_call(&timers[i]->timer);
@@ -391,10 +395,14 @@ void spin(Context* context,
         }
 
     }
+    
+    // Free the last accumulator states
+    for (size_t i = 0; i < n_timers; i++){
+        freeHsOwnedPtr(timers_accs[i]);
+    }
 
     free(timers_accs);
     return_code = rcl_wait_set_fini(&wait_set);
-
 
     if (return_code != RCL_RET_OK){
         fprintf(stderr,"[C] Failed to destory wait-set, ERR - %s.\n",
