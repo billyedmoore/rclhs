@@ -46,7 +46,8 @@ foreign import capi "wrap.h create_subscription"
   c_createSubscriptionRawPtr ::
     Ptr Node ->
     CString ->
-    FunPtr (CString -> IO ()) ->
+    StablePtr a ->
+    FunPtr (StablePtr a -> CString -> CBool -> IO (StablePtr a)) ->
     IO (Ptr Subscription)
 
 foreign import capi "wrap.h destroy_subscription" c_destorySubscriptionRawPtr :: Ptr Node -> Ptr Subscription -> IO ()
@@ -57,16 +58,28 @@ foreign import capi "wrap.h create_context" c_createContextRawPtr :: IO (Ptr Con
 
 foreign import capi "wrap.h shutdown_context" c_shutdownContextRawPtr :: Ptr Context -> IO ()
 
-foreign import capi "wrap.h create_timer" c_createTimer :: Ptr Context -> FunPtr (StablePtr a -> CBool -> IO (StablePtr a)) -> Word64 -> StablePtr a -> IO (Ptr Timer)
+foreign import capi "wrap.h create_timer"
+  c_createTimer ::
+    Ptr Context ->
+    FunPtr (StablePtr a -> CBool -> IO (StablePtr a)) ->
+    Word64 ->
+    StablePtr a ->
+    IO (Ptr Timer)
 
 foreign import capi "wrap.h destroy_timer" c_destoryTimer :: Ptr Timer -> IO ()
 
 foreign import capi "wrap.h spin" c_spin :: Ptr Context -> Ptr (Ptr Subscription) -> CSize -> Ptr (Ptr Timer) -> CSize -> IO ()
 
 -- "wrapper" is a special function to get a FunPtr from a Haskell function
-foreign import ccall "wrapper" c_getStringFunctionPtr :: (CString -> IO ()) -> IO (FunPtr (CString -> IO ()))
+foreign import ccall "wrapper"
+  c_getSubFunctionPtr ::
+    (StablePtr a -> CString -> CBool -> IO (StablePtr a)) ->
+    IO (FunPtr (StablePtr a -> CString -> CBool -> IO (StablePtr a)))
 
-foreign import ccall "wrapper" c_getTimerFunctionPtr :: (StablePtr a -> CBool -> IO (StablePtr a)) -> IO (FunPtr (StablePtr a -> CBool -> IO (StablePtr a)))
+foreign import ccall "wrapper"
+  c_getTimerFunctionPtr ::
+    (StablePtr a -> CBool -> IO (StablePtr a)) ->
+    IO (FunPtr (StablePtr a -> CBool -> IO (StablePtr a)))
 
 -- Allows a HsOwnedPtr to be freed from C land
 -- Should be used sparingly
@@ -83,11 +96,6 @@ spin context subs timers =
   withArrayLen subs $ \n_subs c_subs ->
     withArrayLen timers $ \n_timers c_timers ->
       c_spin context c_subs (fromIntegral n_subs) c_timers (fromIntegral n_timers)
-
-toCFunc :: (String -> IO ()) -> (CString -> IO ())
-toCFunc f c_str = do
-  str <- peekCString c_str
-  f str
 
 withNode :: String -> String -> Ptr Context -> (Ptr Node -> IO a) -> IO a
 withNode name namespace context action =
@@ -107,16 +115,19 @@ withPublisher topic node action =
     bracket (c_createPublisherRawPtr node c_topic) (c_destoryPublisherRawPtr node) $ \publisher ->
       action publisher
 
-withSubscription :: String -> Ptr Node -> (String -> IO ()) -> (Ptr Subscription -> IO a) -> IO a
-withSubscription topic node callback action =
+withSubscription :: String -> Ptr Node -> a -> (a -> String -> IO a) -> (Ptr Subscription -> IO b) -> IO b
+withSubscription topic node initalAcc callback action =
   withCString topic $ \c_topic ->
-    bracket ((c_getStringFunctionPtr . toCFunc) callback) freeHaskellFunPtr $
+    bracket (wrapSubCallback callback) freeHaskellFunPtr $
       \c_callback ->
         bracket
-          (c_createSubscriptionRawPtr node c_topic c_callback)
-          (c_destorySubscriptionRawPtr node)
-          $ \sub ->
-            action sub
+          (newStablePtr initalAcc)
+          freeStablePtr
+          $ \c_initalAcc ->
+            bracket
+              (c_createSubscriptionRawPtr node c_topic c_initalAcc c_callback)
+              (c_destorySubscriptionRawPtr node)
+              $ \sub -> action sub
 
 withTimer :: Ptr Context -> a -> (a -> IO a) -> Word64 -> (Ptr Timer -> IO b) -> IO b
 withTimer context accumInitalValue callback period action =
@@ -139,4 +150,15 @@ wrapTimerCallback callback = c_getTimerFunctionPtr wrapped
       val <- deRefStablePtr input
       when (toBool free) (freeStablePtr input)
       result <- callback val
+      newStablePtr result
+
+wrapSubCallback :: (a -> String -> IO a) -> IO (FunPtr (StablePtr a -> CString -> CBool -> IO (StablePtr a)))
+wrapSubCallback callback =
+  c_getSubFunctionPtr wrapped
+  where
+    wrapped c_acc c_str free = do
+      acc <- deRefStablePtr c_acc
+      when (toBool free) (freeStablePtr c_acc)
+      str <- peekCString c_str
+      result <- callback acc str
       newStablePtr result

@@ -1,6 +1,5 @@
 module Main (main) where
 
-import Data.Char (toUpper)
 import Foreign (Ptr)
 import RclHs
   ( Publisher,
@@ -75,12 +74,13 @@ pubCallback pub lst i = do
   publish pub (lst !! newI)
   return newI
 
-subCallback :: String -> IO ()
-subCallback str = do
-  putStrLn str
-  putStrLn (map toUpper str)
-  putStrLn $ take (length str - 1) str ++ "!!"
-  putStrLn str
+subCallback :: [String] -> String -> IO [String]
+subCallback acc str = do
+  let newLst = str : acc
+  putStrLn "["
+  mapM_ (putStrLn . (\s -> "\"" ++ s ++ "\",")) (reverse newLst)
+  putStrLn "]"
+  return newLst
 
 main :: IO ()
 main = do
@@ -89,5 +89,5 @@ main = do
     withNode "node_name" "" ctx $ \node -> do
       withPublisher "topic_name" node $ \pub -> do
         withTimer ctx (-1) (pubCallback pub yorkFacts) (5 * secondInNanoSecond) $ \timer ->
-          withSubscription "topic_name" node subCallback $ \sub -> do
+          withSubscription "topic_name" node [] subCallback $ \sub -> do
             spin ctx [sub] [timer]

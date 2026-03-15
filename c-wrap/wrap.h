@@ -26,7 +26,7 @@ typedef struct {
 typedef void* HsOwnedPtr;
 
 // String -> IO()
-typedef void (*string_callback_t)(const char*);
+typedef HsOwnedPtr (*string_callback_t)(HsOwnedPtr,const char*,bool);
 
 // a -> IO (a)
 typedef HsOwnedPtr (*timer_callback_t)(HsOwnedPtr,bool);
@@ -36,6 +36,7 @@ typedef struct {
     rcl_subscription_t subscription;
     // Haskell function String -> IO ()
     string_callback_t callback;
+    HsOwnedPtr inital_acc;
 } Subscription;
 
 typedef struct {
@@ -61,6 +62,7 @@ void destroy_publisher(Node* node, Publisher* pub);
 Subscription* create_subscription(
                 Node* node,
                 const char* topic,
+                HsOwnedPtr initial_acc,
                 string_callback_t callback);
 
 void destroy_subscription(Node* node, Subscription* sub);
