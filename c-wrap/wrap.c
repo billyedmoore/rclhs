@@ -12,6 +12,7 @@
 #include "rcl/wait.h"
 #include <stdio.h>
 #include <rcutils/error_handling.h>
+#include <rcutils/time.h>
 #include <rosidl_runtime_c/message_type_support_struct.h>
 #include <rosidl_runtime_c/string_functions.h>
 #include <std_msgs/msg/string.h>
@@ -219,7 +220,7 @@ void nop_timer_callback(rcl_timer_t * timer, long last_call_time) {
 
 Timer* create_timer(Context *context,
                     timer_callback_t callback,
-                    uint64_t period,
+                    uint64_t period, // nanoseconds
                     HsOwnedPtr inital_acc
                     ){
     rcl_ret_t return_code = RCL_RET_OK;
@@ -319,10 +320,20 @@ void spin(Context* context,
           void** v_subs,
           size_t n_subs,
           void** v_timers,
-          size_t n_timers){
+          size_t n_timers,
+          bool run_forever,
+          uint64_t duration){
+    rcl_ret_t return_code = RCL_RET_OK;
+
+    rcutils_time_point_value_t start_time;
+    return_code = rcutils_system_time_now(&start_time);
+
+    check_return_code(return_code,"rcutils_system_time_now");
+
     // GHC wants to pass void** but we need Subscription** and Timer**
     Subscription ** subs = (Subscription **) v_subs;
     Timer** timers = (Timer **) v_timers;
+
 
     HsOwnedPtr* timers_accs = malloc(sizeof(void*) * n_timers);
 
@@ -336,7 +347,6 @@ void spin(Context* context,
         subs_accs[i] = subs[i]->inital_acc;
     }
 
-    rcl_ret_t return_code = RCL_RET_OK;
     rcl_allocator_t allocator = rcl_get_default_allocator();
 
     rcl_wait_set_t wait_set = rcl_get_zero_initialized_wait_set();
@@ -349,6 +359,18 @@ void spin(Context* context,
     fprintf(stderr, "[C] Began Spinning!\n");
 
     while (rcl_context_is_valid(&context->context)){
+
+        if (!run_forever) {
+            rcutils_time_point_value_t now;
+            return_code = rcutils_system_time_now(&now);
+            check_return_code(return_code, "rcutils_system_time_now");
+
+            if ((now - start_time) >= duration) {
+                fprintf(stderr, "[C] spinFor duration reached, exiting.\n");
+                break; 
+            }
+        }
+
         // each wait resets the wait_set it 
         return_code = rcl_wait_set_clear(&wait_set);
         check_return_code(return_code,"ws_clear");
@@ -362,8 +384,8 @@ void spin(Context* context,
             check_return_code(return_code,"add_timer");
         }
     
-        // Block until something happens or timeout (100 ms,i.e. 0.1 second)
-        return_code = rcl_wait(&wait_set,RCL_MS_TO_NS(100));
+        // Block until something happens or timeout (10 ms,i.e. 0.01 second)
+        return_code = rcl_wait(&wait_set,RCL_MS_TO_NS(10));
         check_return_code(return_code,"wait");
         
     

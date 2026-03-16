@@ -165,11 +165,13 @@ library
 test-suite rclhs-test
     import:           warnings
     default-language: GHC2021
-    -- other-modules:
+    other-modules: PubSubExample
     -- other-extensions:
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          Main.hs
     build-depends:
         base ^>=4.18.3.0,
+        tasty,
+        tasty-hunit,
         rclhs
