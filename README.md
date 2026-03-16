@@ -1,3 +1,3 @@
 # RclHs
 
-Haskell bindings for [RCL](https://github.com/ros2/rcl) (Ros2).
+Haskell bindings for [rcl](https://github.com/ros2/rcl) (Ros2).
