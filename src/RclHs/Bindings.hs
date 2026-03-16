@@ -6,6 +6,7 @@ module RclHs.Bindings
     Subscription,
     Timer,
     spin,
+    spinFor,
     withContext,
     withNode,
     withPublisher,
@@ -68,7 +69,16 @@ foreign import capi "wrap.h create_timer"
 
 foreign import capi "wrap.h destroy_timer" c_destoryTimer :: Ptr Timer -> IO ()
 
-foreign import capi "wrap.h spin" c_spin :: Ptr Context -> Ptr (Ptr Subscription) -> CSize -> Ptr (Ptr Timer) -> CSize -> IO ()
+foreign import capi "wrap.h spin"
+  c_spin ::
+    Ptr Context ->
+    Ptr (Ptr Subscription) ->
+    CSize ->
+    Ptr (Ptr Timer) ->
+    CSize ->
+    CBool ->
+    Word64 ->
+    IO ()
 
 -- "wrapper" is a special function to get a FunPtr from a Haskell function
 foreign import ccall "wrapper"
@@ -95,7 +105,14 @@ spin :: Ptr Context -> [Ptr Subscription] -> [Ptr Timer] -> IO ()
 spin context subs timers =
   withArrayLen subs $ \n_subs c_subs ->
     withArrayLen timers $ \n_timers c_timers ->
-      c_spin context c_subs (fromIntegral n_subs) c_timers (fromIntegral n_timers)
+      c_spin context c_subs (fromIntegral n_subs) c_timers (fromIntegral n_timers) (CBool 1) 0
+
+-- spinFor `duration` nano seconds
+spinFor :: Ptr Context -> [Ptr Subscription] -> [Ptr Timer] -> Word64 -> IO ()
+spinFor context subs timers duration =
+  withArrayLen subs $ \n_subs c_subs ->
+    withArrayLen timers $ \n_timers c_timers ->
+      c_spin context c_subs (fromIntegral n_subs) c_timers (fromIntegral n_timers) (CBool 0) duration
 
 withNode :: String -> String -> Ptr Context -> (Ptr Node -> IO a) -> IO a
 withNode name namespace context action =

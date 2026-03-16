@@ -11,6 +11,7 @@ module RclHs
     withContext,
     withTimer,
     spin,
+    spinFor,
     secondInNanoSecond,
   )
 where
@@ -26,6 +27,7 @@ import RclHs.Bindings
     freeHsOwnedPtr,
     publish,
     spin,
+    spinFor,
     withContext,
     withNode,
     withPublisher,

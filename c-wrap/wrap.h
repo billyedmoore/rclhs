@@ -78,10 +78,18 @@ Context* create_context();
 
 void shutdown_context(Context* context);
 
+/* Spin the ROS2 subscriptions and timers
+   Either for:
+    a) forever when `run_forever` == true
+       (the value of `duration` is ignored)
+    b) for duration if `run_forever` != true
+*/
 void spin(Context* context,
           void** subs,
           size_t n_subs,
           void** timers,
-          size_t n_timers);
+          size_t n_timers,
+          bool run_forever,
+          uint64_t duration);
 
 #endif
