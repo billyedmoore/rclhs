@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rclhs</name>
+  <version>0.1.0</version>
+  <description>ROS 2 Client Library for Haskell</description>
+  <maintainer email="billyedmoore@yahoo.com">Billy Moore</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  
+  <depend>rcl</depend>
+  <depend>rcutils</depend>
+  <depend>rosidl_runtime_c</depend>
+  <depend>rosidl_typesupport_c</depend>
+  <depend>rosidl_typesupport_introspection_c</depend>
+  <depend>std_msgs</depend>
+  <depend>service_msgs</depend>
+  <depend>rmw</depend>
+  <depend>rmw_implementation</depend>
+
+  <test_depend>ament_cmake_test</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
