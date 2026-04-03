@@ -2,6 +2,10 @@
 set(_python_script "${rosidl_generator_hs_DIR}/../../../lib/rosidl_generator_hs/generate_hs.py")
 get_filename_component(_python_script "${_python_script}" ABSOLUTE)
 
+# Find the templates
+set(_template_dir "${rosidl_generator_hs_DIR}/../resource")
+get_filename_component(_template_dir "${_template_dir}" ABSOLUTE)
+
 if(NOT EXISTS "${_python_script}")
   message(FATAL_ERROR "Haskell generator script not found at: ${_python_script}")
 endif()
@@ -20,6 +24,7 @@ add_custom_command(
     --package-name ${PROJECT_NAME}
     --output-dir ${_output_path}
     --idl-files ${_idl_files}
+    --template-dir ${_template_dir}
   DEPENDS ${_idl_files} "${_python_script}"
   COMMENT "Generating Haskell interfaces for ${PROJECT_NAME}"
   VERBATIM
@@ -27,6 +32,12 @@ add_custom_command(
 
 set(_target_name "${PROJECT_NAME}__rosidl_generator_hs")
 add_custom_target(${_target_name} DEPENDS ${_generated_cabal_file})
+
+add_dependencies(
+  ${_target_name}
+  "${rosidl_generate_interfaces_TARGET}__rosidl_generator_c"
+  "${rosidl_generate_interfaces_TARGET}__rosidl_typesupport_c"
+)
 
 add_dependencies(
   ${rosidl_generate_interfaces_TARGET}
