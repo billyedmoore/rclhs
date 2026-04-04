@@ -43,8 +43,19 @@ def main():
     output_path = pathlib.Path(args.output_dir)
     template_path = pathlib.Path(args.template_dir)
 
+    package_name_pascal = snake_to_pascal(args.package_name)
+    package_name_haskell = "".join(
+        [('-' if c == '_' else c) for c in args.package_name])
+
     template_env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(template_path))
+
+    cabal_template = template_env.get_template("cabal.j2")
+    cabal_template_args = {
+        "package_name": args.package_name,
+        "package_name_pascal": package_name_pascal,
+        "package_name_hyphen": package_name_haskell,
+        "messages": []}
 
     for idl_file in args.idl_files:
         locator: IdlLocator = IdlLocator(
@@ -54,6 +65,8 @@ def main():
         for msg in ast.get_elements_of_type(Message):
             gen_msg(template_env, output_path,
                     msg, args.package_name)
+            cabal_template_args["messages"].append(
+                msg.structure.namespaced_type.name)
 
         for srv in ast.get_elements_of_type(Service):
             gen_srv(srv)
@@ -62,7 +75,7 @@ def main():
             print(idl_file)
             print(f.read())
 
-    cabal_content = "CABAL FILE\n"
+    cabal_content = cabal_template.render(cabal_template_args)
 
     with open(output_path /
               pathlib.Path(f"{args.package_name}_hs.cabal"), 'w') as f:
@@ -78,17 +91,16 @@ def gen_msg(template_env: jinja2.Environment,
             msg: Message,
             package_name: str):
     msg_template = template_env.get_template("msg.chs.j2")
+
     msg_name = msg.structure.namespaced_type.name
+    package_name_pascal = snake_to_pascal(package_name)
 
     fields = []
     for member in msg.structure.members:
-        print(member.name)
         if isinstance(member.type, BasicType):
             fields.append({"name": member.name,
                            "type": TYPE_MAP[member.type.typename]})
 
-    package_name_pascal = snake_to_pascal(package_name)
-    print()
     template_args = {
         "package_name": package_name,
         "package_name_pascal": package_name_pascal,
@@ -98,13 +110,13 @@ def gen_msg(template_env: jinja2.Environment,
         "fields": fields
     }
 
-    messages_output_dir = (
+    messages_output_path = (
         output_path / pathlib.Path(f"src/RclHs/{package_name_pascal}/Msg"))
-    messages_output_dir.mkdir(parents=True, exist_ok=True)
+    messages_output_path.mkdir(parents=True, exist_ok=True)
 
-    output_f_path = messages_output_dir / pathlib.Path(f"{msg_name}.hsc")
+    output_file_path = messages_output_path / pathlib.Path(f"{msg_name}.hsc")
 
-    with open(output_f_path, "w") as f:
+    with open(output_file_path, "w") as f:
         f.write(msg_template.render(template_args))
 
 
