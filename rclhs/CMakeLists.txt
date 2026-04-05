@@ -21,29 +21,12 @@ set(ROS_DEPS
   service_msgs
 )
 
-set(CABAL_INCLUDE_ARGS "")
-set(CABAL_LIB_ARGS "")
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rclhs-extras.cmake)
 
-foreach(dep IN LISTS ROS_DEPS)
-  find_package(${dep} REQUIRED)
-  
-  foreach(inc_dir IN LISTS ${dep}_INCLUDE_DIRS)
-    list(APPEND CABAL_INCLUDE_ARGS "--extra-include-dirs=${inc_dir}")
-  endforeach()
-
-  foreach(lib IN LISTS ${dep}_LIBRARIES)
-    if(IS_ABSOLUTE "${lib}")
-      get_filename_component(lib_dir "${lib}" DIRECTORY)
-      list(APPEND CABAL_LIB_ARGS "--extra-lib-dirs=${lib_dir}")
-    endif()
-  endforeach()
-endforeach()
-
-list(REMOVE_DUPLICATES CABAL_INCLUDE_ARGS)
-list(REMOVE_DUPLICATES CABAL_LIB_ARGS)
+generate_cabal_project_local(ROS_DEPS)
 
 add_custom_target(${PROJECT_NAME}_cabal_build ALL
-  COMMAND cabal build -v3 ${CABAL_INCLUDE_ARGS} ${CABAL_LIB_ARGS}
+  COMMAND cabal build -v3
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
   COMMENT "Building Haskell package via Cabal... (${CABAL_INCLUDE_ARGS}, ${CABAL_LIB_ARGS})"
 )
@@ -56,4 +39,6 @@ if(BUILD_TESTING)
   )
 endif()
 
-ament_package()
+ament_package(
+  CONFIG_EXTRAS cmake/rclhs-extras.cmake
+)

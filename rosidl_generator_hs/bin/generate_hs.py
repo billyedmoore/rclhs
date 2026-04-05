@@ -78,7 +78,7 @@ def main():
     cabal_content = cabal_template.render(cabal_template_args)
 
     with open(output_path /
-              pathlib.Path(f"{args.package_name}_hs.cabal"), 'w') as f:
+              pathlib.Path(f"{package_name_haskell}-hs.cabal"), 'w') as f:
         f.write(cabal_content)
 
 
@@ -90,7 +90,7 @@ def gen_msg(template_env: jinja2.Environment,
             output_path: pathlib.Path,
             msg: Message,
             package_name: str):
-    msg_template = template_env.get_template("msg.chs.j2")
+    msg_template = template_env.get_template("msg.hsc.j2")
 
     msg_name = msg.structure.namespaced_type.name
     package_name_pascal = snake_to_pascal(package_name)

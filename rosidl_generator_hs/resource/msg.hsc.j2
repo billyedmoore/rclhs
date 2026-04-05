@@ -21,18 +21,18 @@ data {{ msg_name }} = {{ msg_name }}
   } deriving (Show, Eq)
 
 instance Storable {{ msg_name }} where
-  sizeOf _    = {{ '{#' }}size {{ package_name }}__msg__{{ msg_name }}}
-  alignment _ = {{ '{#' }}alignment {{ package_name }}__msg__{{ msg_name }}}
+  sizeOf _    = (#size {{ package_name }}__msg__{{ msg_name }})
+  alignment _ = (#alignment {{ package_name }}__msg__{{ msg_name }})
  
   peek ptr = do
     {% for field in fields -%}
-    {{ field.name }}_val <- {{ '{#' }}peek {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}} ptr
+    {{ field.name }}_val <- (#peek {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}) ptr
     {% endfor -%}
     return ({{ msg_name }} {% for field in fields %}{{ field.name }}_val {% endfor %})
 
   poke ptr ({{ msg_name }} {% for field in fields %}in_{{ field.name }} {% endfor %}) = do
     {%- for field in fields %}
-    {{ '{#' }}poke {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}} ptr in_{{ field.name }}
+    (#poke {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}) ptr in_{{ field.name }}
     {%- endfor %}
 
 -- Call out to the C typesupport function
