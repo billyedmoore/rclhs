@@ -43,3 +43,8 @@ add_dependencies(
   ${rosidl_generate_interfaces_TARGET}
   ${_target_name}
 )
+
+install(
+  DIRECTORY "${_output_path}/"
+  DESTINATION "share/${PROJECT_NAME}/haskell"
+)
