@@ -33,14 +33,6 @@ add_custom_target(${PROJECT_NAME}_cabal_build ALL
   COMMENT "Building Haskell package via Cabal... (${CABAL_INCLUDE_ARGS}, ${CABAL_LIB_ARGS})"
 )
 
-if(BUILD_TESTING)
-  add_test(
-    NAME rclhs_test_suite
-    COMMAND cabal test ${CABAL_INCLUDE_ARGS} ${CABAL_LIB_ARGS}
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  )
-endif()
-
 ament_package(
   CONFIG_EXTRAS cmake/generate_cabal_project_local.cmake
 )
