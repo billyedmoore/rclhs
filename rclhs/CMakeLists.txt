@@ -21,9 +21,11 @@ set(ROS_DEPS
   service_msgs
 )
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rclhs-extras.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_cabal_project_local.cmake)
 
-generate_cabal_project_local(ROS_DEPS)
+# No generated types needed by RclHs itself
+set(GENERATED_TYPES "") 
+generate_cabal_project_local(ROS_DEPS GENERATED_TYPES)
 
 add_custom_target(${PROJECT_NAME}_cabal_build ALL
   COMMAND cabal build -v3
@@ -40,5 +42,5 @@ if(BUILD_TESTING)
 endif()
 
 ament_package(
-  CONFIG_EXTRAS cmake/rclhs-extras.cmake
+  CONFIG_EXTRAS cmake/generate_cabal_project_local.cmake
 )
