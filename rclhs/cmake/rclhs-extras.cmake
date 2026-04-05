@@ -1,0 +1,34 @@
+macro(generate_cabal_project_local ROS_DEPS_LIST)
+    set(ALL_INCLUDES "")
+    set(ALL_LIB_DIRS "")
+
+    # Iterate over the provided list of dependencies
+    foreach(dep IN LISTS ${ROS_DEPS_LIST})
+        find_package(${dep} REQUIRED)
+        list(APPEND ALL_INCLUDES ${${dep}_INCLUDE_DIRS})
+        
+        foreach(lib IN LISTS ${dep}_LIBRARIES)
+            if(IS_ABSOLUTE "${lib}")
+                get_filename_component(lib_dir "${lib}" DIRECTORY)
+                list(APPEND ALL_LIB_DIRS "${lib_dir}")
+            endif()
+        endforeach()
+    endforeach()
+
+    list(REMOVE_DUPLICATES ALL_INCLUDES)
+    list(REMOVE_DUPLICATES ALL_LIB_DIRS)
+
+    string(REPLACE ";" " " CABAL_INCLUDES "${ALL_INCLUDES}")
+    string(REPLACE ";" " " CABAL_LIBS "${ALL_LIB_DIRS}")
+
+    set(CABAL_LOCAL_CONTENT 
+"package *
+  extra-include-dirs: ${CABAL_INCLUDES}
+  extra-lib-dirs: ${CABAL_LIBS}
+")
+
+    # Write the file to the source directory of the package calling this macro
+    file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/cabal.project.local" "${CABAL_LOCAL_CONTENT}")
+    
+    message(STATUS "Generated cabal.project.local for ROS 2 C-linkage")
+endmacro()

@@ -3,33 +3,25 @@ name:               rclhs
 version:            0.1.0.0
 -- synopsis:
 -- description:
-license:            MIT
-license-file:       LICENSE
 author:             Billy Moore
 maintainer:         billyedmoore@yahoo.com
 -- copyright:
 build-type:         Simple
 extra-doc-files:    CHANGELOG.md
--- extra-source-files:
+extra-source-files:
+                    c-wrap/wrap.c
+                    c-wrap/wrap.h
 
 common warnings
     ghc-options: -Wall
 
--- Owns the types used by rclhs
--- Required to prevent circular deps
-library rclhs-types
-    exposed-modules: RclHs.Types
-    build-depends:    base ^>=4.18.3.0
-    hs-source-dirs:   src
-    default-language: GHC2021
-
 library
     import:           warnings
     exposed-modules:  RclHs
+                      RclHs.Types
     other-modules: RclHs.Bindings
     -- other-extensions:
     build-depends:    base ^>=4.18.3.0,
-                      rclhs-types
     hs-source-dirs:   src
     default-language: GHC2021
     default-extensions: CApiFFI
@@ -37,7 +29,6 @@ library
     include-dirs:     c-wrap
     c-sources:        c-wrap/wrap.c
     includes:         wrap.h
-
     extra-libraries:  rcl 
                       rcutils
                       rmw
