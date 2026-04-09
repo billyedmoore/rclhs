@@ -69,26 +69,21 @@ yorkFacts =
     "49. York is the only city in the UK where you can walk almost entirely around the center on elevated walls."
   ]
 
-pubCallback :: Ptr Publisher -> [String] -> Int -> IO Int
-pubCallback pub lst i = do
-  let newI = (i + 1) `mod` length lst
-  publish pub (lst !! newI)
-  return newI
+pubCallback :: Ptr Publisher -> Int -> IO Int
+pubCallback pub i = do
+  publish pub (Counter (fromIntegral (i + 1)))
+  return (i + 1)
 
-subCallback :: [String] -> String -> IO [String]
-subCallback acc str = do
-  let newLst = str : acc
-  putStrLn "["
-  mapM_ (putStrLn . (\s -> "\"" ++ s ++ "\",")) (reverse newLst)
-  putStrLn "]"
-  return newLst
+subCallback :: () -> Counter -> IO ()
+subCallback _ count = putStrLn ("Counter is currently " ++ show (i count))
 
 main :: IO ()
 main = do
-  putStrLn "Publishing Facts Every 5 Seconds!"
+  putStrLn "Publishing Every 5 Seconds!"
+  let topic = "pubsub_example_topic"
   withContext $ \ctx -> do
     withNode "node_name" "" ctx $ \node -> do
-      withPublisher "topic_name" node $ \pub -> do
-        withTimer ctx (-1) (pubCallback pub yorkFacts) (5 * secondInNanoSecond) $ \timer ->
-          withSubscription "topic_name" node [] subCallback $ \sub -> do
-            spinFor ctx [sub] [timer] (10 * secondInNanoSecond)
+      withPublisher @Counter topic node $ \pub -> do
+        withTimer ctx (-1) (pubCallback pub) (5 * secondInNanoSecond) $ \timer ->
+          withSubscription @Counter topic node () subCallback $ \sub -> do
+            spinFor ctx [sub] [timer] (120 * secondInNanoSecond)

@@ -124,16 +124,15 @@ void destroy_node(Node* node){
 
 Publisher* create_publisher(
                 Node* node,
+                const rosidl_message_type_support_t* ts,
                 const char* topic){
     rcl_ret_t return_code = RCL_RET_OK;
     Publisher *pub  = malloc(sizeof(Publisher));
     pub->publisher = rcl_get_zero_initialized_publisher();
 
-    // All data can be encoded as Strings don't you know!
-    const rosidl_message_type_support_t * string_ts = ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String);
 
     rcl_publisher_options_t pub_options = rcl_publisher_get_default_options();
-    return_code = rcl_publisher_init(&pub->publisher, &node->node, string_ts, topic, &pub_options);
+    return_code = rcl_publisher_init(&pub->publisher, &node->node, ts, topic, &pub_options);
 
     if (return_code != RCL_RET_OK){
         fprintf(stderr,"[C] Failed to init publisher, ERR - %s.\n",rcutils_get_error_string().str);
@@ -164,20 +163,23 @@ void destroy_publisher(Node* node, Publisher* pub){
 
 Subscription* create_subscription(
                 Node* node,
+                const rosidl_message_type_support_t* ts,
                 const char* topic,
-                HsOwnedPtr inital_acc,
-                string_callback_t callback){
+                HsOwnedPtr initial_acc,
+                create_message_callback_t create_msg_callback,
+                destroy_message_callback_t destroy_msg_callback,
+                sub_callback_t callback){
     rcl_ret_t return_code = RCL_RET_OK;
     Subscription *sub  = malloc(sizeof(Subscription));
-    sub->subscription = rcl_get_zero_initialized_subscription();
-    sub->inital_acc = inital_acc;
 
-    // (some say) strings are all you need (they are wrong)
-    const rosidl_message_type_support_t * string_ts = ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, String);
-    
+    sub->create_msg = create_msg_callback;
+    sub->destroy_msg = destroy_msg_callback;
+    sub->subscription = rcl_get_zero_initialized_subscription();
+    sub->inital_acc = initial_acc;
+
     rcl_subscription_options_t sub_options = rcl_subscription_get_default_options();
 
-    return_code = rcl_subscription_init(&sub->subscription, &node->node, string_ts, topic, &sub_options);
+    return_code = rcl_subscription_init(&sub->subscription, &node->node, ts, topic, &sub_options);
 
     if (return_code != RCL_RET_OK){
         fprintf(stderr,"[C] Failed to init subscription, ERR - %s.\n",rcutils_get_error_string().str);
@@ -273,36 +275,19 @@ void destroy_timer(Timer* timer){
 
 
 // Publish a message (fire and forget)
-// msg_content will be null_terminated since it is a CString.
-void publish(Publisher* pub, const char* msg_content){
+void publish(Publisher* pub, const void* msg_ptr){
     rcl_ret_t return_code = RCL_RET_OK;
 
-    std_msgs__msg__String msg;
-
-    std_msgs__msg__String__init(&msg);
-
-    bool success = rosidl_runtime_c__String__assign(&msg.data, msg_content);
-
-    if (!success){
-        fprintf(stderr,"[C] Failed to create message \"%s\".",
-                msg_content);
-        return;
-    }
-
-    return_code = rcl_publish(&pub->publisher,&msg,NULL);
+    return_code = rcl_publish(&pub->publisher,msg_ptr,NULL);
     
     if (return_code != RCL_RET_OK){
-        fprintf(stderr,"[C] Failed to publish \"%s\" to \"%s\", ERR - %s.\n",
-                msg_content,
+        fprintf(stderr,"[C] Failed to publish to \"%s\", ERR - %s.\n",
                 rcl_publisher_get_topic_name(&pub->publisher),
                 rcutils_get_error_string().str);
     } else {
-        fprintf(stderr,"[C] Successfully published \"%s\" to \"%s\"\n",
-                msg_content,
+        fprintf(stderr,"[C] Successfully published to \"%s\"\n",
                 rcl_publisher_get_topic_name(&pub->publisher));
     }
-
-    std_msgs__msg__String__fini(&msg);
 }
 
 void check_return_code(rcl_ret_t rc, const char* f_name){
@@ -371,7 +356,7 @@ void spin(Context* context,
             }
         }
 
-        // each wait resets the wait_set it 
+        // each wait resets the wait_set
         return_code = rcl_wait_set_clear(&wait_set);
         check_return_code(return_code,"ws_clear");
 
@@ -384,7 +369,7 @@ void spin(Context* context,
             check_return_code(return_code,"add_timer");
         }
     
-        // Block until something happens or timeout (10 ms,i.e. 0.01 second)
+        // Block until something happens or timeout (10- ms,i.e. 0.01 second)
         return_code = rcl_wait(&wait_set,RCL_MS_TO_NS(10));
         check_return_code(return_code,"wait");
         
@@ -392,7 +377,7 @@ void spin(Context* context,
         // Execute any ready timers
         for (size_t i = 0; i < n_timers; i++) {
             if (wait_set.timers[i] != NULL) {
-                fprintf(stderr,"[C] Triggering timer %zu\n",i);
+                fprintf(stderr,"[C] Triggering timer %zu.\n",i);
                 // Inital acc is freed when the Timer goes out of scope
                 // This allows for multiple spins on the same timer 
                 // (each with the same initial value)
@@ -405,23 +390,22 @@ void spin(Context* context,
 
         for (size_t i = 0; i < n_subs; i++) {
             if (wait_set.subscriptions[i] != NULL){
-                // Yet again we hardcode String type
-                std_msgs__msg__String msg;
-                std_msgs__msg__String__init(&msg);
+                fprintf(stderr, "[C] Subscription %zu triggered.\n",i);
+                HsOwnedPtr msg = subs[i]->create_msg();
 
                 rmw_message_info_t msg_info;
 
-                return_code = rcl_take(wait_set.subscriptions[i],&msg,&msg_info,NULL);
-                check_return_code(return_code,"take");
+                return_code = rcl_take(wait_set.subscriptions[i],msg,&msg_info,NULL);
+                check_return_code(return_code,"rcl_take");
 
-                fprintf(stderr,"[C] Successfully receieved (subed) \"%s\" from \"%s\"\n",
-                msg.data.data,
+                fprintf(stderr,"[C] Successfully receieved from topic \"%s\".\n",
                 rcl_subscription_get_topic_name(wait_set.subscriptions[i]));
                 
                 bool is_not_inital_acc = subs_accs[i] != subs[i]->inital_acc;
-                subs_accs[i] = subs[i]->callback(subs_accs[i],msg.data.data,is_not_inital_acc);
+                subs_accs[i] = subs[i]->callback(subs_accs[i],msg,is_not_inital_acc);
 
-                std_msgs__msg__String__fini(&msg);
+                subs[i]->destroy_msg(msg);
+
             }
         }
 

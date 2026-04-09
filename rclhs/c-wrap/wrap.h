@@ -25,17 +25,20 @@ typedef struct {
 // passed into Haskell functions.
 typedef void* HsOwnedPtr;
 
-// String -> IO()
-typedef HsOwnedPtr (*string_callback_t)(HsOwnedPtr,const char*,bool);
+typedef HsOwnedPtr (*sub_callback_t)(HsOwnedPtr,HsOwnedPtr,bool);
 
-// a -> IO (a)
 typedef HsOwnedPtr (*timer_callback_t)(HsOwnedPtr,bool);
+
+typedef HsOwnedPtr (*create_message_callback_t)();
+
+typedef void (*destroy_message_callback_t)(HsOwnedPtr);
 
 // A ROS2 subscriber.
 typedef struct {
     rcl_subscription_t subscription;
-    // Haskell function String -> IO ()
-    string_callback_t callback;
+    create_message_callback_t create_msg;
+    destroy_message_callback_t destroy_msg;
+    sub_callback_t callback;
     HsOwnedPtr inital_acc;
 } Subscription;
 
@@ -55,19 +58,23 @@ void destroy_node(Node* node);
 
 Publisher* create_publisher(
                 Node* node,
+                const rosidl_message_type_support_t* ts,
                 const char* topic);
 
 void destroy_publisher(Node* node, Publisher* pub);
 
 Subscription* create_subscription(
                 Node* node,
+                const rosidl_message_type_support_t* ts,
                 const char* topic,
                 HsOwnedPtr initial_acc,
-                string_callback_t callback);
+                create_message_callback_t create_msg_callback,
+                destroy_message_callback_t destroy_msg_callback,
+                sub_callback_t callback);
 
 void destroy_subscription(Node* node, Subscription* sub);
 
-void publish(Publisher* pub, const char* msg_content);
+void publish(Publisher* pub, const void* msg_ptr);
 
 Timer* create_timer(Context *context, timer_callback_t callback,
                     uint64_t period, HsOwnedPtr inital_acc);

@@ -35,10 +35,22 @@ instance Storable {{ msg_name }} where
     (#poke {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}) ptr in_{{ field.name }}
     {%- endfor %}
 
--- Call out to the C typesupport function
-foreign import capi "rosidl_typesupport_c__get_message_type_support_handle__{{ package_name }}__msg__{{ msg_name }}"
+-- Import the generated C get type support function
+foreign import ccall "rosidl_typesupport_c__get_message_type_support_handle__{{ package_name }}__msg__{{ msg_name }}"
   c_get_{{ package_name }}_msg_{{ msg_name }}_typesupport :: IO (Ptr (RosidlMessageTypeSupport {{ msg_name }}))
+
+-- Import the generated C initializer
+-- Allocates memory for the fields as required
+foreign import ccall "{{ package_name }}__msg__{{ msg_name }}__init"
+  c_init_{{ package_name }}_msg_{{ msg_name }} :: Ptr {{ msg_name }} -> IO CBool
+
+-- Import the generated C finalizer
+-- Frees any memory that was allocated by __init
+foreign import ccall "{{ package_name }}__msg__{{ msg_name }}__fini"
+  c_fini_{{ package_name }}_msg_{{ msg_name }} :: Ptr {{ msg_name }} -> IO ()
 
 -- Create an instance of RosMessage
 instance RosMessage {{ msg_name }} where
   getTypeSupport = c_get_{{ package_name }}_msg_{{ msg_name }}_typesupport
+  initMessage    = c_init_{{ package_name }}_msg_{{ msg_name }}
+  finiMessage    = c_fini_{{ package_name }}_msg_{{ msg_name }}
