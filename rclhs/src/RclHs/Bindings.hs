@@ -19,10 +19,11 @@ where
 import Control.Exception (bracket)
 import Control.Monad (when)
 import Data.Word (Word64)
-import Foreign (FunPtr, Ptr, freeHaskellFunPtr, toBool)
-import Foreign.C (CBool (..), CSize (..), CString, peekCString, withCString)
+import Foreign (FunPtr, Ptr, Storable (..), freeHaskellFunPtr, toBool)
+import Foreign.C (CBool (..), CSize (..), CString, withCString)
 import Foreign.Marshal.Array (withArrayLen)
 import Foreign.StablePtr (StablePtr, deRefStablePtr, freeStablePtr, newStablePtr)
+import RclHs.Types (RosMessage (..), RosidlMessageTypeSupport, createMessage, destroyMessage)
 
 -- Opaque types
 data Node
@@ -35,37 +36,49 @@ data Publisher
 
 data Subscription
 
+-- Callback Types
+type SubCallback acc msg = acc -> msg -> IO acc
+
+type CSubCallback acc msg = StablePtr acc -> Ptr msg -> CBool -> IO (StablePtr acc)
+
+type TimerCallback acc = acc -> IO acc
+
+type CTimerCallback acc = StablePtr acc -> CBool -> IO (StablePtr acc)
+
 foreign import capi "wrap.h create_node" c_createNodeRawPtr :: CString -> CString -> Ptr Context -> IO (Ptr Node)
 
 foreign import capi "wrap.h destroy_node" c_destoryNodeRawPtr :: Ptr Node -> IO ()
 
-foreign import capi "wrap.h create_publisher" c_createPublisherRawPtr :: Ptr Node -> CString -> IO (Ptr Publisher)
+foreign import capi "wrap.h create_publisher"
+  c_createPublisherRawPtr ::
+    Ptr Node ->
+    Ptr (RosidlMessageTypeSupport msg) ->
+    CString ->
+    IO (Ptr Publisher)
 
 foreign import capi "wrap.h destroy_publisher" c_destoryPublisherRawPtr :: Ptr Node -> Ptr Publisher -> IO ()
 
 foreign import capi "wrap.h create_subscription"
   c_createSubscriptionRawPtr ::
     Ptr Node ->
+    Ptr (RosidlMessageTypeSupport msg) ->
     CString ->
     StablePtr a ->
-    FunPtr (StablePtr a -> CString -> CBool -> IO (StablePtr a)) ->
+    FunPtr (IO (Ptr msg)) ->
+    FunPtr (Ptr msg -> IO ()) ->
+    FunPtr (CSubCallback a msg) ->
     IO (Ptr Subscription)
 
 foreign import capi "wrap.h destroy_subscription" c_destorySubscriptionRawPtr :: Ptr Node -> Ptr Subscription -> IO ()
 
-foreign import capi "wrap.h publish" c_publish :: Ptr Publisher -> CString -> IO ()
+foreign import capi "wrap.h publish" c_publish :: Ptr Publisher -> Ptr msg -> IO ()
 
 foreign import capi "wrap.h create_context" c_createContextRawPtr :: IO (Ptr Context)
 
 foreign import capi "wrap.h shutdown_context" c_shutdownContextRawPtr :: Ptr Context -> IO ()
 
 foreign import capi "wrap.h create_timer"
-  c_createTimer ::
-    Ptr Context ->
-    FunPtr (StablePtr a -> CBool -> IO (StablePtr a)) ->
-    Word64 ->
-    StablePtr a ->
-    IO (Ptr Timer)
+  c_createTimer :: Ptr Context -> FunPtr (CTimerCallback a) -> Word64 -> StablePtr a -> IO (Ptr Timer)
 
 foreign import capi "wrap.h destroy_timer" c_destoryTimer :: Ptr Timer -> IO ()
 
@@ -82,24 +95,28 @@ foreign import capi "wrap.h spin"
 
 -- "wrapper" is a special function to get a FunPtr from a Haskell function
 foreign import ccall "wrapper"
-  c_getSubFunctionPtr ::
-    (StablePtr a -> CString -> CBool -> IO (StablePtr a)) ->
-    IO (FunPtr (StablePtr a -> CString -> CBool -> IO (StablePtr a)))
+  c_getSubFunctionPtr :: CSubCallback a msg -> IO (FunPtr (CSubCallback a msg))
 
 foreign import ccall "wrapper"
-  c_getTimerFunctionPtr ::
-    (StablePtr a -> CBool -> IO (StablePtr a)) ->
-    IO (FunPtr (StablePtr a -> CBool -> IO (StablePtr a)))
+  c_getTimerFunctionPtr :: CTimerCallback a -> IO (FunPtr (CTimerCallback a))
+
+foreign import ccall "wrapper"
+  c_getCreateMessageFunctionPtr :: IO (Ptr msg) -> IO (FunPtr (IO (Ptr msg)))
+
+foreign import ccall "wrapper"
+  c_getDestroyMessageFunctionPtr :: (Ptr msg -> IO ()) -> IO (FunPtr (Ptr msg -> IO ()))
 
 -- Allows a HsOwnedPtr to be freed from C land
 -- Should be used sparingly
 freeHsOwnedPtr :: StablePtr a -> IO ()
 freeHsOwnedPtr = freeStablePtr
 
-publish :: Ptr Publisher -> String -> IO ()
-publish publisher message =
-  withCString message $ \c_message ->
-    c_publish publisher c_message
+publish :: forall msg. (RosMessage msg) => Ptr Publisher -> msg -> IO ()
+publish publisher message = do
+  messagePtr <- createMessage @msg
+  poke messagePtr message
+  c_publish publisher messagePtr
+  destroyMessage @msg messagePtr
 
 spin :: Ptr Context -> [Ptr Subscription] -> [Ptr Timer] -> IO ()
 spin context subs timers =
@@ -126,14 +143,27 @@ withContext action =
   bracket c_createContextRawPtr c_shutdownContextRawPtr $ \context ->
     action context
 
-withPublisher :: String -> Ptr Node -> (Ptr Publisher -> IO a) -> IO a
-withPublisher topic node action =
+-- Require users to explicity state the type of the publisher
+withPublisher :: forall msg a. (RosMessage msg) => String -> Ptr Node -> (Ptr Publisher -> IO a) -> IO a
+withPublisher topic node action = do
+  ts <- getTypeSupport @msg
   withCString topic $ \c_topic ->
-    bracket (c_createPublisherRawPtr node c_topic) (c_destoryPublisherRawPtr node) $ \publisher ->
+    bracket (c_createPublisherRawPtr node ts c_topic) (c_destoryPublisherRawPtr node) $ \publisher ->
       action publisher
 
-withSubscription :: String -> Ptr Node -> a -> (a -> String -> IO a) -> (Ptr Subscription -> IO b) -> IO b
-withSubscription topic node initalAcc callback action =
+-- Require users to explicity state the type of the publisher
+withSubscription ::
+  forall msg acc b.
+  (RosMessage msg) =>
+  String ->
+  Ptr Node ->
+  acc ->
+  SubCallback acc msg ->
+  (Ptr Subscription -> IO b) ->
+  IO b
+withSubscription topic node initalAcc callback action = do
+  ts <- getTypeSupport @msg
+
   withCString topic $ \c_topic ->
     bracket (wrapSubCallback callback) freeHaskellFunPtr $
       \c_callback ->
@@ -142,11 +172,22 @@ withSubscription topic node initalAcc callback action =
           freeStablePtr
           $ \c_initalAcc ->
             bracket
-              (c_createSubscriptionRawPtr node c_topic c_initalAcc c_callback)
+              ( do
+                  createPtrCallback <- c_getCreateMessageFunctionPtr (createMessage @msg)
+                  destroyPtrCallback <- c_getDestroyMessageFunctionPtr (destroyMessage @msg)
+                  c_createSubscriptionRawPtr
+                    node
+                    ts
+                    c_topic
+                    c_initalAcc
+                    createPtrCallback
+                    destroyPtrCallback
+                    c_callback
+              )
               (c_destorySubscriptionRawPtr node)
               $ \sub -> action sub
 
-withTimer :: Ptr Context -> a -> (a -> IO a) -> Word64 -> (Ptr Timer -> IO b) -> IO b
+withTimer :: Ptr Context -> acc -> TimerCallback acc -> Word64 -> (Ptr Timer -> IO b) -> IO b
 withTimer context accumInitalValue callback period action =
   bracket
     (newStablePtr accumInitalValue)
@@ -159,23 +200,25 @@ withTimer context accumInitalValue callback period action =
           bracket (c_createTimer context c_callback period c_initalAccum) c_destoryTimer $ \timer ->
             action timer
 
-wrapTimerCallback :: (a -> IO a) -> IO (FunPtr (StablePtr a -> CBool -> IO (StablePtr a)))
-wrapTimerCallback callback = c_getTimerFunctionPtr wrapped
+-- Convert Haskell Callbacks to somthing that can be called from C
+
+wrapTimerCallback :: TimerCallback acc -> IO (FunPtr (CTimerCallback acc))
+wrapTimerCallback callback =
+  c_getTimerFunctionPtr wrapped
   where
-    -- wrapped :: StablePtr a -> CBool -> IO (StablePtr a)
     wrapped input free = do
       val <- deRefStablePtr input
       when (toBool free) (freeStablePtr input)
       result <- callback val
       newStablePtr result
 
-wrapSubCallback :: (a -> String -> IO a) -> IO (FunPtr (StablePtr a -> CString -> CBool -> IO (StablePtr a)))
+wrapSubCallback :: (RosMessage msg) => SubCallback acc msg -> IO (FunPtr (CSubCallback acc msg))
 wrapSubCallback callback =
   c_getSubFunctionPtr wrapped
   where
-    wrapped c_acc c_str free = do
-      acc <- deRefStablePtr c_acc
-      when (toBool free) (freeStablePtr c_acc)
-      str <- peekCString c_str
-      result <- callback acc str
+    wrapped input c_msg free = do
+      acc <- deRefStablePtr input
+      when (toBool free) (freeStablePtr input)
+      msg <- peek c_msg
+      result <- callback acc msg
       newStablePtr result
