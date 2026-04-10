@@ -19,7 +19,7 @@ where
 import Control.Exception (bracket)
 import Control.Monad (when)
 import Data.Word (Word64)
-import Foreign (FunPtr, Ptr, Storable (..), freeHaskellFunPtr, toBool)
+import Foreign (FunPtr, Ptr, freeHaskellFunPtr, toBool)
 import Foreign.C (CBool (..), CSize (..), CString, withCString)
 import Foreign.Marshal.Array (withArrayLen)
 import Foreign.StablePtr (StablePtr, deRefStablePtr, freeStablePtr, newStablePtr)
@@ -112,11 +112,9 @@ freeHsOwnedPtr :: StablePtr a -> IO ()
 freeHsOwnedPtr = freeStablePtr
 
 publish :: forall msg. (RosMessage msg) => Ptr Publisher -> msg -> IO ()
-publish publisher message = do
-  messagePtr <- createMessage @msg
-  poke messagePtr message
-  c_publish publisher messagePtr
-  destroyMessage @msg messagePtr
+publish publisher message =
+  withCStruct message $ \messagePtr -> do
+    c_publish publisher messagePtr
 
 spin :: Ptr Context -> [Ptr Subscription] -> [Ptr Timer] -> IO ()
 spin context subs timers =
@@ -219,6 +217,6 @@ wrapSubCallback callback =
     wrapped input c_msg free = do
       acc <- deRefStablePtr input
       when (toBool free) (freeStablePtr input)
-      msg <- peek c_msg
+      msg <- peekCStruct c_msg
       result <- callback acc msg
       newStablePtr result
