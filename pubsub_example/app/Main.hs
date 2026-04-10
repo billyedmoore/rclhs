@@ -12,7 +12,7 @@ import RclHs
     withSubscription,
     withTimer,
   )
-import RclHs.ExampleTypes.Msg.Counter
+import RclHs.ExampleTypes.Msg.StringMessage
 
 -- YorkFacts were AI Generated, may consitute serious academic misconduct!
 yorkFacts :: [String]
@@ -69,13 +69,14 @@ yorkFacts =
     "49. York is the only city in the UK where you can walk almost entirely around the center on elevated walls."
   ]
 
-pubCallback :: Ptr Publisher -> Int -> IO Int
-pubCallback pub i = do
-  publish pub (Counter (fromIntegral (i + 1)))
+pubCallback :: Ptr Publisher -> [String] -> Int -> IO Int
+pubCallback pub facts i = do
+  let index = (i + 1) `mod` length facts
+  publish pub (StringMessage (facts !! index))
   return (i + 1)
 
-subCallback :: () -> Counter -> IO ()
-subCallback _ count = putStrLn ("Counter is currently " ++ show (i count))
+subCallback :: () -> StringMessage -> IO ()
+subCallback _ msg = putStrLn ("Recieved Fact - " ++ show (str msg))
 
 main :: IO ()
 main = do
@@ -83,7 +84,7 @@ main = do
   let topic = "pubsub_example_topic"
   withContext $ \ctx -> do
     withNode "node_name" "" ctx $ \node -> do
-      withPublisher @Counter topic node $ \pub -> do
-        withTimer ctx (-1) (pubCallback pub) (5 * secondInNanoSecond) $ \timer ->
-          withSubscription @Counter topic node () subCallback $ \sub -> do
+      withPublisher @StringMessage topic node $ \pub -> do
+        withTimer ctx (-1) (pubCallback pub yorkFacts) (5 * secondInNanoSecond) $ \timer ->
+          withSubscription @StringMessage topic node () subCallback $ \sub -> do
             spinFor ctx [sub] [timer] (120 * secondInNanoSecond)

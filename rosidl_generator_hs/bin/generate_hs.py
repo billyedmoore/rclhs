@@ -4,7 +4,15 @@ import pathlib
 import jinja2
 
 from rosidl_parser.parser import parse_idl_file, IdlContent, IdlLocator
-from rosidl_parser.definition import Service, Message, BasicType
+from rosidl_parser.definition import (
+    Service,
+    Message,
+    BasicType,
+    UnboundedString,
+    BoundedString,
+    UnboundedSequence,
+    BoundedSequence,
+    Array)
 from rosidl_pycommon import convert_camel_case_to_lower_case_underscore
 
 print("Generating Haskell Types with rosidl_generator_hs!")
@@ -25,7 +33,7 @@ TYPE_MAP = {
     'uint64':   'Word64',
     'float':    'CFloat',
     'double':   'CDouble',
-    'char':     'Char'
+    'char':     'CChar'
 }
 
 
@@ -71,10 +79,6 @@ def main():
         for srv in ast.get_elements_of_type(Service):
             gen_srv(srv)
 
-        with open(idl_file) as f:
-            print(idl_file)
-            print(f.read())
-
     cabal_content = cabal_template.render(cabal_template_args)
 
     with open(output_path /
@@ -90,16 +94,61 @@ def gen_msg(template_env: jinja2.Environment,
             output_path: pathlib.Path,
             msg: Message,
             package_name: str):
+
+    def assert_type_is_basic_type(value_type):
+        if not isinstance(value_type, BasicType):
+            raise Exception(
+                "Non-basic types in sequences and arrays ",
+                "are not supported.")
+
     msg_template = template_env.get_template("msg.hsc.j2")
 
     msg_name = msg.structure.namespaced_type.name
     package_name_pascal = snake_to_pascal(package_name)
 
     fields = []
+
     for member in msg.structure.members:
+        field_base = {
+            "name": member.name,
+            "is_basic_type": False,
+            "is_string": False,
+            "is_sequence": False,
+            "is_array": False}
+
         if isinstance(member.type, BasicType):
-            fields.append({"name": member.name,
-                           "type": TYPE_MAP[member.type.typename]})
+            fields.append({
+                **field_base,
+                "is_basic_type": True,
+                "type": TYPE_MAP[member.type.typename]
+            })
+        elif (isinstance(member.type, UnboundedString) or
+                isinstance(member.type, BoundedString)):
+            fields.append({
+                **field_base,
+                "is_string": True
+            })
+        elif (isinstance(member.type, Array)):
+            print(member.type.value_type)
+            assert_type_is_basic_type(member.type.value_type)
+            fields.append({
+                **field_base,
+                "is_array": True,
+                "capacity": member.type.size,
+                "value_type": TYPE_MAP[member.type.value_type.typename]
+            })
+        elif (isinstance(member.type, UnboundedSequence) or
+                isinstance(member.type, BoundedSequence)):
+            assert_type_is_basic_type(member.type.value_type)
+            fields.append({
+                **field_base,
+                "is_sequence": True,
+                "value_type": TYPE_MAP[member.type.value_type.typename]
+            })
+        else:
+            raise Exception(
+                f"The type, {type(member.type)}, is not supported "
+                "by `rosidl_generator_hs`.")
 
     template_args = {
         "package_name": package_name,

@@ -4,36 +4,101 @@
 
 module RclHs.{{ package_name_pascal }}.Msg.{{ msg_name }} where
 
-import Foreign.Storable
-import Foreign.Ptr
-import Foreign.C.Types
-import Data.Int
-import Data.Word
-import RclHs.Types (RosidlMessageTypeSupport, RosMessage(..))
-
 #include <{{ package_name }}/msg/detail/{{ msg_name_snake }}__struct.h>
 
+-- imports all possible types, although very rarely all will be used
+import Foreign.Storable
+import Foreign.Ptr (Ptr, plusPtr)
+import Foreign.C.Types 
+  ( CBool(..)
+  , CChar(..)
+  , CFloat(..)
+  , CDouble(..)
+  )
+import Foreign.Marshal.Alloc (allocaBytesAligned)
+import Foreign.Marshal.Utils (copyBytes)
+import Foreign.Marshal.Array (copyArray)
+import Foreign.ForeignPtr (newForeignPtr_)
+import Data.Int (Int8, Int16, Int32, Int64)
+import Data.Word (Word8, Word16, Word32, Word64)
+import RclHs.Types 
+  ( RosidlMessageTypeSupport
+  , RosMessage(..)
+  , initRosString
+  , destroyRosString
+  , peekRosString
+  , withRosSequence
+  , peekRosSequence
+  , RosString
+  , RosSequence
+  , copyCArrayToSized
+  )
+import Control.Exception (finally)
+
+import qualified Data.Vector.Storable.Sized as SizedVector
+import qualified Data.Vector.Storable as Vector
+
 -- Data type for {{ package_name }}/{{ msg_name }}
-data {{ msg_name }} = {{ msg_name }}
-  { {% for field in fields -%}
-    {% if loop.first %}  {% else %}, {% endif %}{{ field.name}} :: {-# UNPACK #-} !{{ field.type }}
-  {% endfor -%}
-  } deriving (Show, Eq)
-
-instance Storable {{ msg_name }} where
-  sizeOf _    = (#size {{ package_name }}__msg__{{ msg_name }})
-  alignment _ = (#alignment {{ package_name }}__msg__{{ msg_name }})
- 
-  peek ptr = do
+data {{ msg_name }} = {{ msg_name }} {
     {% for field in fields -%}
-    {{ field.name }}_val <- (#peek {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}) ptr
-    {% endfor -%}
-    return ({{ msg_name }} {% for field in fields %}{{ field.name }}_val {% endfor %})
+    {% if loop.first %}  {% else %}, {% endif %}{{ field.name}} :: 
+    {%- if field.is_string -%}
+      String
+    {%- elif field.is_array -%}
+      SizedVector.Vector {{ field.capacity }} {{ field.value_type }}
+    {%- elif field.is_sequence -%}
+      [ {{ field.value_type }} ]
+    {%- else -%}
+      {-# UNPACK #-} !{{ field.type }}
+    {%- endif %}
+  {% endfor -%}
+} deriving (Show, Eq)
 
-  poke ptr ({{ msg_name }} {% for field in fields %}in_{{ field.name }} {% endfor %}) = do
+
+withCStruct{{ msg_name }} :: {{ msg_name }} -> (Ptr {{ msg_name }} -> IO b) -> IO b
+withCStruct{{ msg_name }} msg action = do
+  allocaBytesAligned (#size {{ package_name }}__msg__{{ msg_name }}) (#alignment {{ package_name }}__msg__{{ msg_name }}) $ \(ptr :: Ptr {{ msg_name }}) -> do
+    {% set check = namespace(found_string=false) -%}
     {%- for field in fields %}
-    (#poke {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}) ptr in_{{ field.name }}
+    {%- if field.is_string -%}
+    {%- set check.found_string = true %}
+    let destPtr_{{ field.name }} = (#ptr {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}) ptr
+    initRosString destPtr_{{field.name}} ({{ field.name }} msg)
+    {%- elif field.is_array %}
+    let destPtr_{{ field.name }} = (#{ptr {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}} ptr)
+    Vector.unsafeWith (SizedVector.fromSized ({{ field.name }} msg)) $ \srcPtr ->
+      copyArray destPtr_{{ field.name }} srcPtr {{ field.capacity }}
+    {%- elif field.is_sequence %}
+    withRosSequence ({{ field.name }} msg) $ \(seqPtr :: Ptr RosSequence) -> do
+      (#poke {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}) ptr seqPtr
+    {%- else %}
+    (#poke {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}) ptr ({{ field.name }} msg :: {{ field.type }})
+    {%- endif %}
     {%- endfor %}
+    action ptr {%- if check.found_string %} `finally` do {%- endif %}
+    {%- for field in fields %}
+    {%- if field.is_string %}
+      destroyRosString destPtr_{{field.name}}
+    {%- endif %}
+    {%- endfor %}
+
+peekCStruct{{ msg_name }} :: Ptr {{ msg_name }} -> IO {{ msg_name }}
+peekCStruct{{ msg_name }} ptr = do
+  {%- for field in fields %}
+  {%- if field.is_string %}
+  let strPtr_{{ field.name }} = (#ptr {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}) ptr
+  {{ field.name }}_val <- peekRosString strPtr_{{ field.name }}
+  {%- elif field.is_array %}
+  let ptr_{{ field.name }} = ((#ptr {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}) ptr)
+  {{ field.name }}_val <- copyCArrayToSized ptr_{{field.name}}
+  {%- elif field.is_sequence %}
+  seqPtr_{{ field.name }} <- (#peek {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}) ptr :: IO (Ptr RosSequence)
+  {{ field.name }}_val <- peekRosSequence seqPtr_{{ field.name }}
+  {%- else %}
+  {{ field.name }}_val <- (#peek {{ package_name }}__msg__{{ msg_name }}, {{ field.name }}) ptr :: IO {{ field.type }}
+  {%- endif %}
+  {%- endfor %}
+  return ({{ msg_name }} {% for field in fields %}{{ field.name }}_val {% endfor %})
 
 -- Import the generated C get type support function
 foreign import ccall "rosidl_typesupport_c__get_message_type_support_handle__{{ package_name }}__msg__{{ msg_name }}"
@@ -49,8 +114,14 @@ foreign import ccall "{{ package_name }}__msg__{{ msg_name }}__init"
 foreign import ccall "{{ package_name }}__msg__{{ msg_name }}__fini"
   c_fini_{{ package_name }}_msg_{{ msg_name }} :: Ptr {{ msg_name }} -> IO ()
 
--- Create an instance of RosMessage
+-- Create a RosMessage instance
 instance RosMessage {{ msg_name }} where
+  outerSize _ = (#size {{ package_name }}__msg__{{ msg_name }})
+
   getTypeSupport = c_get_{{ package_name }}_msg_{{ msg_name }}_typesupport
+
   initMessage    = c_init_{{ package_name }}_msg_{{ msg_name }}
   finiMessage    = c_fini_{{ package_name }}_msg_{{ msg_name }}
+
+  withCStruct    = withCStruct{{ msg_name }}
+  peekCStruct    = peekCStruct{{ msg_name }}
