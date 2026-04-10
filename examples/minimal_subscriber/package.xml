@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>pubsub_example</name>
+  <name>minimal_subscriber</name>
   <version>0.1.0</version>
   <description>RclHs pubsub example.</description>
   <maintainer email="billyedmoore@yahoo.com">Billy Moore</maintainer>
