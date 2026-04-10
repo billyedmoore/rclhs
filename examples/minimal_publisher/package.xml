@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>minimal_publisher</name>
+  <version>0.1.0</version>
+  <description>RclHs pubsub example.</description>
+  <maintainer email="billyedmoore@yahoo.com">Billy Moore</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclhs</depend>
+  <depend>example_types</depend> 
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
