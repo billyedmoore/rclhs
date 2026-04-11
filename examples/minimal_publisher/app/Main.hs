@@ -15,7 +15,7 @@ import RclHs.ExampleTypes.Msg.StringMessage
 
 pubCallback :: Ptr Publisher -> Int -> IO Int
 pubCallback pub i = do
-  publish pub (StringMessage ("Hello World " ++ show (i + 1)))
+  publish pub (StringMessage ("Hello, world! " ++ show i))
   return (i + 1)
 
 main :: IO ()
@@ -24,5 +24,5 @@ main = do
   withContext $ \ctx -> do
     withNode "node_name" "" ctx $ \node -> do
       withPublisher @StringMessage topic node $ \pub -> do
-        withTimer ctx (-1) (pubCallback pub) (5 * secondInNanoSecond) $ \timer ->
+        withTimer ctx 0 (pubCallback pub) (secondInNanoSecond `div` 2) $ \timer ->
           spin ctx [] [timer]
