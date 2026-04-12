@@ -11,6 +11,9 @@ module RclHs.Bindings
     withNode,
     withPublisher,
     withSubscription,
+    withServiceServer,
+    withServiceClient,
+    callService,
     withTimer,
     freeHsOwnedPtr,
   )
@@ -18,12 +21,20 @@ where
 
 import Control.Exception (bracket)
 import Control.Monad (when)
+import Data.Int (Int64)
 import Data.Word (Word64)
-import Foreign (FunPtr, Ptr, freeHaskellFunPtr, toBool)
+import Foreign (FunPtr, Ptr, castFunPtr, castPtr, freeHaskellFunPtr, toBool)
 import Foreign.C (CBool (..), CSize (..), CString, withCString)
 import Foreign.Marshal.Array (withArrayLen)
 import Foreign.StablePtr (StablePtr, deRefStablePtr, freeStablePtr, newStablePtr)
-import RclHs.Types (RosMessage (..), RosidlMessageTypeSupport, createMessage, destroyMessage)
+import RclHs.Types
+  ( RosMessage (..),
+    RosService (..),
+    RosidlMessageTypeSupport,
+    RosidlServiceTypeSupport,
+    createEmptyMessage,
+    destroyMessage,
+  )
 
 -- Opaque types
 data Node
@@ -36,6 +47,10 @@ data Publisher
 
 data Subscription
 
+data ServiceServer
+
+data ServiceClient
+
 -- Callback Types
 type SubCallback acc msg = acc -> msg -> IO acc
 
@@ -44,6 +59,22 @@ type CSubCallback acc msg = StablePtr acc -> Ptr msg -> CBool -> IO (StablePtr a
 type TimerCallback acc = acc -> IO acc
 
 type CTimerCallback acc = StablePtr acc -> CBool -> IO (StablePtr acc)
+
+type ServiceServerCallback srv = SrvRequest srv -> IO (SrvResponse srv)
+
+type CServiceServerCallback srv = Ptr (SrvRequest srv) -> IO (Ptr (SrvResponse srv))
+
+type RawCServiceServerCallback srv = Ptr () -> IO (Ptr ())
+
+type ServiceClientCallback srv = SrvResponse srv -> IO ()
+
+type CServiceClientCallback srv = Ptr (SrvResponse srv) -> IO ()
+
+type RawCServiceClientCallback srv = Ptr () -> IO ()
+
+type CreateMessageCallback msg = IO (Ptr msg)
+
+type DestroyMessageCallback msg = Ptr msg -> IO ()
 
 foreign import capi "wrap.h create_node" c_createNodeRawPtr :: CString -> CString -> Ptr Context -> IO (Ptr Node)
 
@@ -64,8 +95,8 @@ foreign import capi "wrap.h create_subscription"
     Ptr (RosidlMessageTypeSupport msg) ->
     CString ->
     StablePtr a ->
-    FunPtr (IO (Ptr msg)) ->
-    FunPtr (Ptr msg -> IO ()) ->
+    FunPtr (CreateMessageCallback msg) ->
+    FunPtr (DestroyMessageCallback msg) ->
     FunPtr (CSubCallback a msg) ->
     IO (Ptr Subscription)
 
@@ -76,6 +107,33 @@ foreign import capi "wrap.h publish" c_publish :: Ptr Publisher -> Ptr msg -> IO
 foreign import capi "wrap.h create_context" c_createContextRawPtr :: IO (Ptr Context)
 
 foreign import capi "wrap.h shutdown_context" c_shutdownContextRawPtr :: Ptr Context -> IO ()
+
+-- NOTE: this doesnt enforce the types properly
+foreign import capi "wrap.h create_service_server"
+  c_createServiceServer ::
+    Ptr Node ->
+    Ptr (RosidlServiceTypeSupport srv) ->
+    CString ->
+    FunPtr (CreateMessageCallback req) ->
+    FunPtr (DestroyMessageCallback req) ->
+    FunPtr (DestroyMessageCallback res) ->
+    FunPtr (CServiceServerCallback srv) ->
+    IO (Ptr ServiceServer)
+
+foreign import capi "wrap.h destroy_service_server" c_destroyServiceServer :: Ptr Node -> Ptr ServiceServer -> IO ()
+
+foreign import capi "wrap.h create_service_client"
+  c_createServiceClient ::
+    Ptr Node ->
+    Ptr (RosidlServiceTypeSupport srv) ->
+    CString ->
+    FunPtr (CreateMessageCallback res) ->
+    FunPtr (DestroyMessageCallback res) ->
+    IO (Ptr ServiceClient)
+
+foreign import capi "wrap.h destroy_service_client" c_destroyServiceClient :: Ptr Node -> Ptr ServiceClient -> IO ()
+
+foreign import capi "wrap.h call_service_server" c_callService :: Ptr Node -> Ptr Context -> Ptr ServiceClient -> Ptr req -> FunPtr (CServiceClientCallback srv) -> Int64 -> IO (CBool)
 
 foreign import capi "wrap.h create_timer"
   c_createTimer :: Ptr Context -> FunPtr (CTimerCallback a) -> Word64 -> StablePtr a -> IO (Ptr Timer)
@@ -89,6 +147,8 @@ foreign import capi "wrap.h spin"
     CSize ->
     Ptr (Ptr Timer) ->
     CSize ->
+    Ptr (Ptr ServiceServer) ->
+    CSize ->
     CBool ->
     Word64 ->
     IO ()
@@ -99,6 +159,12 @@ foreign import ccall "wrapper"
 
 foreign import ccall "wrapper"
   c_getTimerFunctionPtr :: CTimerCallback a -> IO (FunPtr (CTimerCallback a))
+
+foreign import ccall "wrapper"
+  c_getServiceClientFunctionPtr :: RawCServiceClientCallback srv -> IO (FunPtr (RawCServiceClientCallback srv))
+
+foreign import ccall "wrapper"
+  c_getServiceServerFunctionPtr :: RawCServiceServerCallback srv -> IO (FunPtr (RawCServiceServerCallback srv))
 
 foreign import ccall "wrapper"
   c_getCreateMessageFunctionPtr :: IO (Ptr msg) -> IO (FunPtr (IO (Ptr msg)))
@@ -116,18 +182,39 @@ publish publisher message =
   withCStruct message $ \messagePtr -> do
     c_publish publisher messagePtr
 
-spin :: Ptr Context -> [Ptr Subscription] -> [Ptr Timer] -> IO ()
-spin context subs timers =
+spin :: Ptr Context -> [Ptr Subscription] -> [Ptr Timer] -> [Ptr ServiceServer] -> IO ()
+spin context subs timers services =
   withArrayLen subs $ \n_subs c_subs ->
     withArrayLen timers $ \n_timers c_timers ->
-      c_spin context c_subs (fromIntegral n_subs) c_timers (fromIntegral n_timers) (CBool 1) 0
+      withArrayLen services $ \n_services c_services ->
+        c_spin context c_subs (fromIntegral n_subs) c_timers (fromIntegral n_timers) c_services (fromIntegral n_services) (CBool 1) 0
 
 -- spinFor `duration` nano seconds
-spinFor :: Ptr Context -> [Ptr Subscription] -> [Ptr Timer] -> Word64 -> IO ()
-spinFor context subs timers duration =
+spinFor :: Ptr Context -> [Ptr Subscription] -> [Ptr Timer] -> [Ptr ServiceServer] -> Word64 -> IO ()
+spinFor context subs timers services duration =
   withArrayLen subs $ \n_subs c_subs ->
     withArrayLen timers $ \n_timers c_timers ->
-      c_spin context c_subs (fromIntegral n_subs) c_timers (fromIntegral n_timers) (CBool 0) duration
+      withArrayLen services $ \n_services c_services ->
+        c_spin context c_subs (fromIntegral n_subs) c_timers (fromIntegral n_timers) c_services (fromIntegral n_services) (CBool 0) duration
+
+callService ::
+  forall srv.
+  (RosService srv, RosMessage (SrvRequest srv), RosMessage (SrvResponse srv)) =>
+  Ptr Node ->
+  Ptr Context ->
+  Ptr ServiceClient ->
+  SrvRequest srv ->
+  (SrvResponse srv -> IO ()) ->
+  Int64 ->
+  IO ()
+callService node context serviceClient req callback timeout =
+  bracket
+    (wrapServiceClientCallback @srv callback)
+    freeHaskellFunPtr
+    $ \c_callback ->
+      withCStruct @(SrvRequest srv) req $ \reqPtr -> do
+        _ <- c_callService node context serviceClient reqPtr (castFunPtr c_callback) timeout
+        return ()
 
 withNode :: String -> String -> Ptr Context -> (Ptr Node -> IO a) -> IO a
 withNode name namespace context action =
@@ -141,7 +228,72 @@ withContext action =
   bracket c_createContextRawPtr c_shutdownContextRawPtr $ \context ->
     action context
 
--- Require users to explicity state the type of the publisher
+withServiceServer ::
+  forall srv a.
+  ( RosService srv,
+    RosMessage (SrvRequest srv),
+    RosMessage (SrvResponse srv)
+  ) =>
+  String ->
+  Ptr Node ->
+  (SrvRequest srv -> IO (SrvResponse srv)) ->
+  (Ptr ServiceServer -> IO a) ->
+  IO a
+withServiceServer service_name node callback action = do
+  ts <- getServiceTypeSupport @srv
+  withCString service_name $ \c_serviceName ->
+    bracket
+      (wrapServiceServerCallback @srv callback)
+      freeHaskellFunPtr
+      $ \c_callback ->
+        bracket (c_getCreateMessageFunctionPtr (createEmptyMessage @(SrvRequest srv))) freeHaskellFunPtr $
+          \c_createReqCallback ->
+            bracket (c_getDestroyMessageFunctionPtr (destroyMessage @(SrvRequest srv))) freeHaskellFunPtr $
+              \c_destroyReqCallback ->
+                bracket (c_getDestroyMessageFunctionPtr (destroyMessage @(SrvResponse srv))) freeHaskellFunPtr $
+                  \c_destroyResCallback ->
+                    bracket
+                      ( c_createServiceServer
+                          node
+                          ts
+                          c_serviceName
+                          (castFunPtr c_createReqCallback)
+                          (castFunPtr c_destroyReqCallback)
+                          (castFunPtr c_destroyResCallback)
+                          (castFunPtr c_callback)
+                      )
+                      (c_destroyServiceServer node)
+                      action
+
+withServiceClient ::
+  forall srv a.
+  ( RosService srv,
+    RosMessage (SrvRequest srv),
+    RosMessage (SrvResponse srv)
+  ) =>
+  String ->
+  Ptr Node ->
+  (Ptr ServiceClient -> IO a) ->
+  IO a
+withServiceClient service_name node action = do
+  ts <- getServiceTypeSupport @srv
+  withCString service_name $ \c_serviceName ->
+    bracket (c_getCreateMessageFunctionPtr (createEmptyMessage @(SrvResponse srv))) freeHaskellFunPtr $
+      \c_createReqCallback ->
+        bracket (c_getDestroyMessageFunctionPtr (destroyMessage @(SrvResponse srv))) freeHaskellFunPtr $
+          \c_destroyReqCallback ->
+            bracket
+              ( c_createServiceClient
+                  node
+                  ts
+                  c_serviceName
+                  (castFunPtr c_createReqCallback)
+                  (castFunPtr c_destroyReqCallback)
+              )
+              (c_destroyServiceClient node)
+              action
+
+-- Require users to explicity state the type of the publisher with @ syntax
 withPublisher :: forall msg a. (RosMessage msg) => String -> Ptr Node -> (Ptr Publisher -> IO a) -> IO a
 withPublisher topic node action = do
   ts <- getTypeSupport @msg
@@ -170,8 +322,9 @@ withSubscription topic node initalAcc callback action = do
           freeStablePtr
           $ \c_initalAcc ->
             bracket
+              -- WARNING: These function ptrs are not freed?
               ( do
-                  createPtrCallback <- c_getCreateMessageFunctionPtr (createMessage @msg)
+                  createPtrCallback <- c_getCreateMessageFunctionPtr (createEmptyMessage @msg)
                   destroyPtrCallback <- c_getDestroyMessageFunctionPtr (destroyMessage @msg)
                   c_createSubscriptionRawPtr
                     node
@@ -220,3 +373,41 @@ wrapSubCallback callback =
       msg <- peekCStruct c_msg
       result <- callback acc msg
       newStablePtr result
+
+wrapServiceServerCallback ::
+  forall srv.
+  ( RosService srv,
+    RosMessage (SrvRequest srv),
+    RosMessage (SrvResponse srv)
+  ) =>
+  ServiceServerCallback srv ->
+  IO (FunPtr (CServiceServerCallback srv))
+wrapServiceServerCallback callback = do
+  rawFunPtr <- c_getServiceServerFunctionPtr wrapped
+  return (castFunPtr rawFunPtr)
+  where
+    wrapped :: Ptr () -> IO (Ptr ())
+    wrapped reqVoidPtr = do
+      let reqPtr = castPtr reqVoidPtr :: Ptr (SrvRequest srv)
+      haskellReq <- peekCStruct @(SrvRequest srv) reqPtr
+      haskellRes <- callback haskellReq
+      resPtr <- newCStruct @(SrvResponse srv) haskellRes
+      return (castPtr resPtr)
+
+wrapServiceClientCallback ::
+  forall srv.
+  ( RosService srv,
+    RosMessage (SrvResponse srv)
+  ) =>
+  ServiceClientCallback srv ->
+  IO
+    (FunPtr (CServiceClientCallback srv))
+wrapServiceClientCallback callback = do
+  rawFunPtr <- c_getServiceClientFunctionPtr wrapped
+  return (castFunPtr rawFunPtr)
+  where
+    wrapped :: Ptr () -> IO ()
+    wrapped resVoidPtr = do
+      let resPtr = castPtr resVoidPtr :: Ptr (SrvResponse srv)
+      haskellRes <- peekCStruct @(SrvResponse srv) resPtr
+      callback haskellRes

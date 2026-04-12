@@ -14,6 +14,14 @@ library
     {%- for msg_name in messages %}
         RclHs.{{package_name_pascal}}.Msg.{{msg_name}}
     {%- endfor %}
+    {%- for service_name in services %}
+        RclHs.{{package_name_pascal}}.Srv.{{service_name}}
+    {%- endfor %}
+    other-modules:
+    {%- for service_name in services %}
+        RclHs.{{package_name_pascal}}.Srv.{{service_name}}.{{service_name}}_Request
+        RclHs.{{package_name_pascal}}.Srv.{{service_name}}.{{service_name}}_Response
+    {%- endfor %}
     -- TODO: versions for vector things.
     build-depends:   
         base ^>=4.18.3.0,
@@ -22,7 +30,7 @@ library
         vector-sized
     hs-source-dirs:   src
     default-language: GHC2021
-    default-extensions: CApiFFI, DataKinds
+    default-extensions: CApiFFI, DataKinds, TypeFamilies, DuplicateRecordFields
     extra-libraries:
         {{ package_name }}__rosidl_typesupport_c
         {{ package_name }}__rosidl_generator_c

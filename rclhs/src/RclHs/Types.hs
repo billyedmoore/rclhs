@@ -1,5 +1,5 @@
 module RclHs.Types
-  ( createMessage,
+  ( createEmptyMessage,
     destroyMessage,
     peekRosString,
     peekRosSequence,
@@ -11,9 +11,12 @@ module RclHs.Types
     RosString,
     RosMessage (..),
     RosidlMessageTypeSupport,
+    RosidlServiceTypeSupport,
+    RosService (..),
   )
 where
 
+import Data.Kind (Type)
 import Data.Proxy (Proxy (..))
 import Foreign (Ptr, callocBytes, free)
 import Foreign.C.Types (CBool (..))
@@ -28,12 +31,14 @@ import RclHs.Types.Dynamic
     withRosSequence,
   )
 
--- Opaque Ptr
+-- Opaque Ptrs for type supports
 data RosidlMessageTypeSupport a
 
+data RosidlServiceTypeSupport a
+
 -- Allocate and init message
-createMessage :: forall msg. (RosMessage msg) => IO (Ptr msg)
-createMessage = do
+createEmptyMessage :: forall msg. (RosMessage msg) => IO (Ptr msg)
+createEmptyMessage = do
   ptr <- callocBytes (outerSize (Proxy @msg))
   success <- initMessage ptr
   if success == 1
@@ -55,5 +60,12 @@ class RosMessage a where
 
   getTypeSupport :: IO (Ptr (RosidlMessageTypeSupport a))
 
+  newCStruct :: a -> IO (Ptr a)
   withCStruct :: a -> (Ptr a -> IO b) -> IO b
   peekCStruct :: Ptr a -> IO a
+
+class (RosMessage (SrvRequest srv), RosMessage (SrvResponse srv)) => RosService srv where
+  type SrvRequest srv :: Type
+  type SrvResponse srv :: Type
+
+  getServiceTypeSupport :: IO (Ptr (RosidlServiceTypeSupport srv))

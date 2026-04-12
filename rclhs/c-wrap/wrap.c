@@ -10,6 +10,8 @@
 #include "rcl/timer.h"
 #include "rcl/types.h"
 #include "rcl/wait.h"
+#include "rcl/graph.h"
+#include <unistd.h>
 #include <stdio.h>
 #include <rcutils/error_handling.h>
 #include <rcutils/time.h>
@@ -195,8 +197,6 @@ Subscription* create_subscription(
 }
 
 void destroy_subscription(Node* node, Subscription* sub){
-    // NOTE: Subscription is not responsible for the callback,
-    //       it is allocated and freed from Haskell world.
     rcl_ret_t return_code = RCL_RET_OK;
 
     // Does NOT fini the node just the sub
@@ -290,6 +290,190 @@ void publish(Publisher* pub, const void* msg_ptr){
     }
 }
 
+ServiceServer* create_service_server(
+                Node* node,
+                const struct rosidl_service_type_support_t* ts,
+                const char* service_name,
+                create_message_callback_t create_req_callback,
+                destroy_message_callback_t destroy_req_callback,
+                destroy_message_callback_t destroy_res_callback,
+                service_server_callback_t callback) {
+    rcl_ret_t return_code = RCL_RET_OK;
+    ServiceServer *srv_server = malloc(sizeof(ServiceServer));
+
+    srv_server->create_req = create_req_callback;
+    srv_server->destroy_req = destroy_req_callback;
+    srv_server->destroy_res = destroy_res_callback;
+    srv_server->service = rcl_get_zero_initialized_service();
+
+    rcl_service_options_t srv_options = rcl_service_get_default_options();
+
+    return_code = rcl_service_init(&srv_server->service, &node->node, ts, service_name, &srv_options);
+
+    if (return_code != RCL_RET_OK){
+        fprintf(stderr,"[C] Failed to init service server, ERR - %s.\n", rcutils_get_error_string().str);
+        destroy_service_server(node, srv_server);
+        return NULL;
+    }
+
+    srv_server->callback = callback;
+    fprintf(stderr,"[C] Successfully created service server '%s'.\n", service_name);
+    return srv_server;
+}
+
+void destroy_service_server(Node* node, ServiceServer* srv_server) {
+    rcl_ret_t return_code = rcl_service_fini(&srv_server->service, &node->node);
+    free(srv_server);
+    if (return_code != RCL_RET_OK) {
+        fprintf(stderr,"[C] Failed to destroy service server, ERR - %s.\n", rcutils_get_error_string().str);
+    }
+}
+
+
+ServiceClient* create_service_client(
+                Node* node,
+                const rosidl_service_type_support_t* ts,
+                const char* service_name,
+                create_message_callback_t create_res_callback,
+                destroy_message_callback_t destroy_res_callback
+                ) {
+    rcl_ret_t return_code = RCL_RET_OK;
+    ServiceClient *service_client = malloc(sizeof(ServiceClient));
+
+    service_client->create_res = create_res_callback;
+    service_client->destroy_res = destroy_res_callback;
+    service_client->client = rcl_get_zero_initialized_client();
+
+    rcl_client_options_t client_options = rcl_client_get_default_options();
+
+    return_code = rcl_client_init(&service_client->client, &node->node, ts, service_name, &client_options);
+
+    if (return_code != RCL_RET_OK){
+        fprintf(stderr,"[C] Failed to init service client, ERR - %s.\n", rcutils_get_error_string().str);
+        destroy_service_client(node, service_client);
+        return NULL;
+    }
+
+    fprintf(stderr,"[C] Successfully created service client '%s'.\n", service_name);
+    return service_client;
+}
+
+void destroy_service_client(Node* node, ServiceClient* srv_client) {
+    rcl_ret_t return_code = rcl_client_fini(&srv_client->client, &node->node);
+    free(srv_client);
+    if (return_code != RCL_RET_OK) {
+        fprintf(stderr,"[C] Failed to destroy service client, ERR - %s.\n", rcutils_get_error_string().str);
+    }
+}
+
+// Sychronusly call a service server
+bool call_service_server(
+            Node* node,
+            Context* context, 
+            ServiceClient* service_client, 
+            HsOwnedPtr req_msg_ptr, 
+            service_client_callback_t callback,
+            int64_t timeout_ns) {
+    rcl_ret_t return_code = RCL_RET_OK;
+    int64_t sequence_number;
+
+    rcutils_time_point_value_t start_time;
+    return_code = rcutils_system_time_now(&start_time);
+
+    bool is_ready;
+
+    while (!is_ready && rcl_context_is_valid(&context->context)) {
+
+        return_code = rcl_service_server_is_available(&node->node, &service_client->client, &is_ready);
+
+        if (!is_ready) {
+            // 0.01 seconds
+            usleep(10000);
+        }
+
+        rcutils_time_point_value_t now;
+        return_code = rcutils_system_time_now(&now);
+        if ((now - start_time) > timeout_ns) {
+            fprintf(stderr, "[C] Timed out waiting for service server to exist.\n");
+            return false;
+        }
+    }
+
+
+    return_code = rcl_send_request(&service_client->client, req_msg_ptr, &sequence_number);
+
+    if (return_code != RCL_RET_OK) {
+        fprintf(stderr, "[C] Failed to send request to service server, ERR - %s\n", rcutils_get_error_string().str);
+        return false;
+    } else{
+        fprintf(stderr, "[C] Successfully sent request to service server.\n");
+    }
+
+    rcl_allocator_t allocator = rcl_get_default_allocator();
+    rcl_wait_set_t wait_set = rcl_get_zero_initialized_wait_set();
+
+    return_code = rcl_wait_set_init(&wait_set, 0, 0, 0, 1, 0, 0, &context->context, allocator);
+
+    if (return_code != RCL_RET_OK) {
+        fprintf(stderr, "[C] Failed to init wait_set when sending request, ERR - %s\n", rcutils_get_error_string().str);
+        return false;
+    }
+
+    bool callback_called = false;
+
+    while (rcl_context_is_valid(&context->context)) {
+
+        rcutils_time_point_value_t now;
+        return_code = rcutils_system_time_now(&now);
+        if ((now - start_time) > timeout_ns) {
+            fprintf(stderr, "[C] Timed out waiting for service server response.\n");
+            break;
+        }
+
+        return_code = rcl_wait_set_clear(&wait_set);
+        return_code = rcl_wait_set_add_client(&wait_set, &service_client->client, NULL);
+
+        return_code = rcl_wait(&wait_set, RCL_MS_TO_NS(10));
+
+        if (return_code == RCL_RET_TIMEOUT) continue;
+        if (return_code != RCL_RET_OK) {
+            fprintf(stderr, "[C] Failed to wait for service server response, ERR - %s\n", rcutils_get_error_string().str);
+            break;
+        }
+
+        if (wait_set.clients[0] != NULL) {
+            rmw_request_id_t req_id;
+
+            HsOwnedPtr res_msg_ptr = service_client->create_res();
+
+            return_code = rcl_take_response(&service_client->client, &req_id, res_msg_ptr);
+
+            if (return_code == RCL_RET_OK) {
+                if (req_id.sequence_number == sequence_number) {
+                    callback(res_msg_ptr);
+                    callback_called = true;
+                    break;
+                } else {
+                    // A different response, shouldnt be here so just destroy.
+                    service_client->destroy_res(res_msg_ptr);
+                    res_msg_ptr = service_client->create_res();
+                }
+            } else {
+                service_client->destroy_res(res_msg_ptr);
+            }
+        }
+    }
+
+    return_code = rcl_wait_set_fini(&wait_set);
+    if (return_code != RCL_RET_OK){
+        fprintf(stderr, "[C] Failed to fini_wait_set for service server response, ERR - %s\n", rcutils_get_error_string().str);
+    }
+
+    return callback_called;
+}
+
+
+
 void check_return_code(rcl_ret_t rc, const char* f_name){
 
     if (rc != RCL_RET_OK && rc != RCL_RET_TIMEOUT){
@@ -306,8 +490,11 @@ void spin(Context* context,
           size_t n_subs,
           void** v_timers,
           size_t n_timers,
+          void** v_service_servers,
+          size_t n_service_servers,
           bool run_forever,
           uint64_t duration){
+
     rcl_ret_t return_code = RCL_RET_OK;
 
     rcutils_time_point_value_t start_time;
@@ -318,6 +505,7 @@ void spin(Context* context,
     // GHC wants to pass void** but we need Subscription** and Timer**
     Subscription ** subs = (Subscription **) v_subs;
     Timer** timers = (Timer **) v_timers;
+    ServiceServer** service_servers = (ServiceServer **) v_service_servers;
 
 
     HsOwnedPtr* timers_accs = malloc(sizeof(void*) * n_timers);
@@ -337,7 +525,8 @@ void spin(Context* context,
     rcl_wait_set_t wait_set = rcl_get_zero_initialized_wait_set();
 
     return_code = rcl_wait_set_init(&wait_set,n_subs,0,n_timers,
-                                    0,0,0,&context->context,allocator);
+                                    0,n_service_servers,0,
+                                    &context->context,allocator);
     
     check_return_code(return_code,"wait_set_init");
 
@@ -368,12 +557,17 @@ void spin(Context* context,
             return_code = rcl_wait_set_add_timer(&wait_set, &timers[i]->timer, NULL);
             check_return_code(return_code,"add_timer");
         }
-    
+
+        for (size_t i = 0; i < n_service_servers; i++){
+            return_code = rcl_wait_set_add_service(&wait_set, &service_servers[i]->service, NULL);
+            check_return_code(return_code,"add_service_servers");
+        }
+
+
         // Block until something happens or timeout (10- ms,i.e. 0.01 second)
         return_code = rcl_wait(&wait_set,RCL_MS_TO_NS(10));
         check_return_code(return_code,"wait");
-        
-    
+
         // Execute any ready timers
         for (size_t i = 0; i < n_timers; i++) {
             if (wait_set.timers[i] != NULL) {
@@ -400,7 +594,7 @@ void spin(Context* context,
 
                 fprintf(stderr,"[C] Successfully receieved from topic \"%s\".\n",
                 rcl_subscription_get_topic_name(wait_set.subscriptions[i]));
-                
+
                 bool is_not_inital_acc = subs_accs[i] != subs[i]->inital_acc;
                 subs_accs[i] = subs[i]->callback(subs_accs[i],msg,is_not_inital_acc);
 
@@ -409,8 +603,34 @@ void spin(Context* context,
             }
         }
 
+        for (size_t i = 0; i < n_service_servers; i++) {
+            if (wait_set.services[i] != NULL) {
+                fprintf(stderr, "[C] Service server %zu receieved message.\n",i);
+
+                rmw_request_id_t req_id;
+                HsOwnedPtr req_msg = service_servers[i]->create_req();
+
+                return_code = rcl_take_request(wait_set.services[i], &req_id, req_msg);
+                if (return_code == RCL_RET_OK) {
+                    HsOwnedPtr res_msg = NULL; 
+
+                    res_msg = service_servers[i]->callback(req_msg);
+
+                    if (res_msg != NULL) {
+                        return_code = rcl_send_response(wait_set.services[i], &req_id, res_msg);
+                        check_return_code(return_code, "rcl_send_response");
+
+                        service_servers[i]->destroy_res(res_msg);
+                    } else {
+                        fprintf(stderr, "[C] Service Server callback returned a NULL pointer.\n");
+                    }
+                }
+                service_servers[i]->destroy_req(req_msg);
+            }
+        }
+
     }
-    
+
     // Free the last accumulator states
     for (size_t i = 0; i < n_timers; i++){
         freeHsOwnedPtr(timers_accs[i]);

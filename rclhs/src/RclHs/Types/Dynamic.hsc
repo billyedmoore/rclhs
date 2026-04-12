@@ -16,7 +16,6 @@ import Control.Monad (when)
 import Data.Maybe (fromJust)
 
 import qualified Data.Vector.Storable.Sized as SizedVector
-import qualified Data.Vector.Storable as Vector
 
 -- Opaque Pointers to the Ros structs for strings 
 -- and sequences

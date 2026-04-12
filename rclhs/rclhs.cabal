@@ -29,6 +29,7 @@ library
     default-language: GHC2021
     default-extensions: CApiFFI
                         AllowAmbiguousTypes
+                        TypeFamilies
     include-dirs:     c-wrap
     c-sources:        c-wrap/wrap.c
     includes:         wrap.h

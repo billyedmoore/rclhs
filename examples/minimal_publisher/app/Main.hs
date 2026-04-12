@@ -25,4 +25,4 @@ main = do
     withNode "node_name" "" ctx $ \node -> do
       withPublisher @StringMessage topic node $ \pub -> do
         withTimer ctx 0 (pubCallback pub) (secondInNanoSecond `div` 2) $ \timer ->
-          spin ctx [] [timer]
+          spin ctx [] [timer] []

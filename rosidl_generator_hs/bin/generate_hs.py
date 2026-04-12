@@ -63,7 +63,8 @@ def main():
         "package_name": args.package_name,
         "package_name_pascal": package_name_pascal,
         "package_name_hyphen": package_name_haskell,
-        "messages": []}
+        "messages": [],
+        "services": []}
 
     for idl_file in args.idl_files:
         locator: IdlLocator = IdlLocator(
@@ -77,7 +78,11 @@ def main():
                 msg.structure.namespaced_type.name)
 
         for srv in ast.get_elements_of_type(Service):
-            gen_srv(srv)
+            gen_srv(srv, template_env,
+                    output_path, args.package_name,
+                    package_name_pascal)
+            cabal_template_args["services"].append(
+                srv.namespaced_type.name)
 
     cabal_content = cabal_template.render(cabal_template_args)
 
@@ -93,7 +98,9 @@ def snake_to_pascal(text):
 def gen_msg(template_env: jinja2.Environment,
             output_path: pathlib.Path,
             msg: Message,
-            package_name: str):
+            package_name: str,
+            is_service=False,
+            service_name=""):
 
     def assert_type_is_basic_type(value_type):
         if not isinstance(value_type, BasicType):
@@ -114,8 +121,8 @@ def gen_msg(template_env: jinja2.Environment,
             "is_basic_type": False,
             "is_string": False,
             "is_sequence": False,
-            "is_array": False}
-
+            "is_array": False
+        }
         if isinstance(member.type, BasicType):
             fields.append({
                 **field_base,
@@ -150,18 +157,35 @@ def gen_msg(template_env: jinja2.Environment,
                 f"The type, {type(member.type)}, is not supported "
                 "by `rosidl_generator_hs`.")
 
+    if is_service:
+        messages_output_path = (
+            output_path /
+            pathlib.Path(
+                f"src/RclHs/{package_name_pascal}/Srv/{service_name}"))
+    else:
+        messages_output_path = (
+            output_path / pathlib.Path(f"src/RclHs/{package_name_pascal}/Msg"))
+    messages_output_path.mkdir(parents=True, exist_ok=True)
+
+    msg_name_snake = convert_camel_case_to_lower_case_underscore(msg_name)
     template_args = {
         "package_name": package_name,
         "package_name_pascal": package_name_pascal,
         "msg_name": msg_name,
-        "msg_name_snake":
-            convert_camel_case_to_lower_case_underscore(msg_name),
-        "fields": fields
+        "msg_name_snake": msg_name_snake,
+        "fields": fields,
+        "is_service": is_service,
+        "service_name": service_name,
+        "header_path": (package_name + "/msg/detail/" +
+                        msg_name_snake + "__struct.h"),
+        "c_prefix":  (package_name +
+                      ("__msg__" if not is_service else "__srv__") + msg_name)
     }
-
-    messages_output_path = (
-        output_path / pathlib.Path(f"src/RclHs/{package_name_pascal}/Msg"))
-    messages_output_path.mkdir(parents=True, exist_ok=True)
+    if is_service:
+        service_name_snake = convert_camel_case_to_lower_case_underscore(
+            service_name)
+        template_args["header_path"] = (
+            package_name + "/srv/detail/" + service_name_snake + "__struct.h")
 
     output_file_path = messages_output_path / pathlib.Path(f"{msg_name}.hsc")
 
@@ -169,9 +193,44 @@ def gen_msg(template_env: jinja2.Environment,
         f.write(msg_template.render(template_args))
 
 
-def gen_srv(srv: Service):
-    # TODO: Implement codegen for Services
+def gen_srv(srv: Service,
+            template_env: jinja2.Environment,
+            output_path: pathlib.Path,
+            package_name: str,
+            package_name_pascal: str
+            ):
+    service_name = srv.namespaced_type.name
+
+    gen_msg(template_env, output_path,
+            srv.response_message,
+            package_name,
+            is_service=True,
+            service_name=service_name)
+    gen_msg(template_env, output_path,
+            srv.request_message, package_name,
+            is_service=True,
+            service_name=service_name)
+
+    srv_template = template_env.get_template("srv.hsc.j2")
     print("gen_srv")
+    template_args = {
+        "package_name": package_name,
+        "service_name": service_name,
+        "package_name_pascal": package_name_pascal,
+        "service_name_snake":
+            convert_camel_case_to_lower_case_underscore(service_name)
+    }
+
+    services_output_path = (
+        output_path /
+        pathlib.Path(
+            f"src/RclHs/{package_name_pascal}/Srv/"))
+
+    output_file_path = services_output_path / \
+        pathlib.Path(f"{service_name}.hsc")
+
+    with open(output_file_path, "w") as f:
+        f.write(srv_template.render(template_args))
 
 
 if __name__ == '__main__':

@@ -6,6 +6,9 @@ get_filename_component(_python_script "${_python_script}" ABSOLUTE)
 set(_template_dir "${rosidl_generator_hs_DIR}/../resource")
 get_filename_component(_template_dir "${_template_dir}" ABSOLUTE)
 
+# find template files
+file(GLOB _template_files "${_template_dir}/*")
+
 if(NOT EXISTS "${_python_script}")
   message(FATAL_ERROR "Haskell generator script not found at: ${_python_script}")
 endif()
@@ -25,7 +28,7 @@ add_custom_command(
     --output-dir ${_output_path}
     --idl-files ${_idl_files}
     --template-dir ${_template_dir}
-  DEPENDS ${_idl_files} "${_python_script}"
+  DEPENDS ${_idl_files} "${_python_script}" ${_template_files}
   COMMENT "Generating Haskell interfaces for ${PROJECT_NAME}"
   VERBATIM
 )
