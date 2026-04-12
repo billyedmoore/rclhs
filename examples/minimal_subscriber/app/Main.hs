@@ -17,4 +17,4 @@ main = do
   withContext $ \ctx -> do
     withNode "minimal_subscriber" "" ctx $ \node -> do
       withSubscription @StringMessage topic node () subCallback $ \sub -> do
-        spin ctx [sub] []
+        spin ctx [sub] [] []

@@ -9,6 +9,7 @@ find_package(rosidl_generator_hs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/Text.srv"
+  "srv/AddTwoInts.srv"
   "msg/Counter.msg"
   "msg/IntSequence.msg"
   "msg/StringMessage.msg"

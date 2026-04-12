@@ -4,6 +4,8 @@
 #include "rcl/node.h"
 #include "rcl/publisher.h"
 #include "rcl/subscription.h"
+#include "rcl/service.h"
+#include "rcl/client.h"
 
 // The global context of the ROS2 session.
 typedef struct {
@@ -33,6 +35,18 @@ typedef HsOwnedPtr (*create_message_callback_t)();
 
 typedef void (*destroy_message_callback_t)(HsOwnedPtr);
 
+// callback(request) -> response
+typedef HsOwnedPtr (*service_server_callback_t)(HsOwnedPtr);
+
+// callback(response) -> void
+typedef void (*service_client_callback_t)(HsOwnedPtr);
+
+
+// Where possible messages are passed in as fully formed C Structs
+// from Haskell.
+// In order to do rcl_take the create_message_callback_t's are used.
+
+
 // A ROS2 subscriber.
 typedef struct {
     rcl_subscription_t subscription;
@@ -49,6 +63,52 @@ typedef struct {
     HsOwnedPtr inital_acc;
 } Timer;
 
+typedef struct {
+    rcl_service_t service;
+    create_message_callback_t create_req;
+    destroy_message_callback_t destroy_req;
+    destroy_message_callback_t destroy_res;
+    service_server_callback_t callback;
+} ServiceServer;
+
+typedef struct {
+    rcl_client_t client;
+    create_message_callback_t create_res;
+    destroy_message_callback_t destroy_res;
+} ServiceClient;
+
+ServiceServer* create_service_server(
+                Node* node,
+                const struct rosidl_service_type_support_t* ts,
+                const char* service_name,
+                create_message_callback_t create_req_callback,
+                destroy_message_callback_t destroy_req_callback,
+                destroy_message_callback_t destroy_res_callback,
+                service_server_callback_t callback);
+
+void destroy_service_server(Node* node, ServiceServer* srv_server);
+
+ServiceClient* create_service_client(
+                Node* node,
+                const struct rosidl_service_type_support_t* ts,
+                const char* service_name,
+                create_message_callback_t create_res_callback,
+                destroy_message_callback_t destroy_res_callback);
+
+void destroy_service_client(Node* node, ServiceClient* srv_client);
+
+// Bool is did succesfully callback
+bool call_service_server(
+        Node* node,
+        Context* context, 
+        ServiceClient* service_client, 
+        HsOwnedPtr req_msg_ptr, 
+        service_client_callback_t callback,
+        int64_t timeout_ns);
+
+
+void send_request(ServiceClient* srv_client, HsOwnedPtr req_msg_ptr);
+
 Node* create_node(const char *node_name,
                   const char *namespace,
                   Context *context);
@@ -63,8 +123,7 @@ Publisher* create_publisher(
 
 void destroy_publisher(Node* node, Publisher* pub);
 
-Subscription* create_subscription(
-                Node* node,
+Subscription* create_subscription(Node* node,
                 const rosidl_message_type_support_t* ts,
                 const char* topic,
                 HsOwnedPtr initial_acc,
@@ -85,17 +144,19 @@ Context* create_context();
 
 void shutdown_context(Context* context);
 
-/* Spin the ROS2 subscriptions and timers
+/* Spin the ROS2 subscriptions, timers and service_servers
    Either for:
     a) forever when `run_forever` == true
        (the value of `duration` is ignored)
     b) for duration if `run_forever` != true
 */
 void spin(Context* context,
-          void** subs,
+          void** v_subs,
           size_t n_subs,
-          void** timers,
+          void** v_timers,
           size_t n_timers,
+          void** v_service_servers,
+          size_t n_service_servers,
           bool run_forever,
           uint64_t duration);
 

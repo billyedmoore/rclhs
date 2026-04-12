@@ -13,6 +13,9 @@ module RclHs
     spin,
     spinFor,
     secondInNanoSecond,
+    withServiceServer,
+    withServiceClient,
+    callService,
   )
 where
 
@@ -24,6 +27,7 @@ import RclHs.Bindings
     Publisher,
     Subscription,
     Timer,
+    callService,
     freeHsOwnedPtr,
     publish,
     spin,
@@ -31,6 +35,8 @@ import RclHs.Bindings
     withContext,
     withNode,
     withPublisher,
+    withServiceClient,
+    withServiceServer,
     withSubscription,
     withTimer,
   )
