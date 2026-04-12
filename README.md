@@ -8,14 +8,17 @@ Haskell bindings for [rcl](https://github.com/ros2/rcl) (Ros2).
 
 RclHs relies on code generation to generate the Haskell types
 for user defined [interfaces](https://docs.ros.org/en/kilted/Concepts/Basic/About-Interfaces.html).
+This is not fully featured.
 
-Unfortunately to keep their implementation relatively simple
-types cannot be generated for all valid interfaces.
+Only basic types, strings, arrays and sequences are supported as field values.
 
-Specifically only sequences and arrays of basic types are supported.
+For arrays and sequences the value type must be a basic type.
+
+Bounded strings and sequences are allowed but their length will 
+not enforced by rclhs (this should be considered undefined behaviour).
 
 ```python
-# The basic types supported in sequences and arrays.
+# For reference, the basic types:
 ['boolean', 'octet',
  'int8', 'uint8',
  'int16', 'uint16',
@@ -25,7 +28,6 @@ Specifically only sequences and arrays of basic types are supported.
  'char']
 ```
 
-The length of bounded strings and sequences are
-not enforced.
+### Action Server
 
-Finally nesting custom types is not supported.
+There is no support for action servers or action server clients.
