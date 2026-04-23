@@ -38,7 +38,7 @@ import RclHs.Types
     destroyMessage,
   )
 
--- Opaque types
+-- Opaque types for ROS2 objects
 data Node
 
 data Timer
@@ -188,11 +188,10 @@ foreign import ccall "wrapper"
   c_getDestroyMessageFunctionPtr :: (Ptr msg -> IO ()) -> IO (FunPtr (Ptr msg -> IO ()))
 
 -- Allows a HsOwnedPtr to be freed from C land
--- Should be used sparingly
 freeHsOwnedPtr :: StablePtr a -> IO ()
 freeHsOwnedPtr = freeStablePtr
 
-publish :: forall msg. (RosMessage msg) => Ptr (Publisher msg) -> msg -> IO ()
+publish :: (RosMessage msg) => Ptr (Publisher msg) -> msg -> IO ()
 publish publisher message =
   withCStruct message $ \messagePtr -> do
     c_publish publisher messagePtr
@@ -330,7 +329,7 @@ withServiceClient service_name node action = do
               (c_destroyServiceClient node)
               action
 
--- Require users to explicity state the type of the publisher with @ syntax
+-- A type application is required to hint the compiler for users of withPublisher
 withPublisher :: forall msg a. (RosMessage msg) => String -> Ptr Node -> (Ptr (Publisher msg) -> IO a) -> IO a
 withPublisher topic node action = do
   ts <- getTypeSupport @msg
@@ -338,7 +337,6 @@ withPublisher topic node action = do
     bracket (c_createPublisherRawPtr node ts c_topic) (c_destoryPublisherRawPtr node) $ \publisher ->
       action publisher
 
--- Require users to explicity state the type of the publisher
 withSubscription ::
   forall msg acc b.
   (RosMessage msg) =>
@@ -358,22 +356,20 @@ withSubscription topic node initalAcc callback action = do
           (newStablePtr initalAcc)
           freeStablePtr
           $ \c_initalAcc ->
-            bracket
-              -- WARNING: These function ptrs are not freed?
-              ( do
-                  createPtrCallback <- c_getCreateMessageFunctionPtr (createEmptyMessage @msg)
-                  destroyPtrCallback <- c_getDestroyMessageFunctionPtr (destroyMessage @msg)
-                  c_createSubscriptionRawPtr
-                    node
-                    ts
-                    c_topic
-                    c_initalAcc
-                    createPtrCallback
-                    destroyPtrCallback
-                    c_callback
-              )
-              (c_destorySubscriptionRawPtr node)
-              $ \sub -> action sub
+            bracket (c_getCreateMessageFunctionPtr (createEmptyMessage @msg)) freeHaskellFunPtr $ \createPtrCallback ->
+              bracket (c_getDestroyMessageFunctionPtr (destroyMessage @msg)) freeHaskellFunPtr $ \destroyPtrCallback ->
+                bracket
+                  ( c_createSubscriptionRawPtr
+                      node
+                      ts
+                      c_topic
+                      c_initalAcc
+                      createPtrCallback
+                      destroyPtrCallback
+                      c_callback
+                  )
+                  (c_destorySubscriptionRawPtr node)
+                  $ \sub -> action sub
 
 withTimer :: Ptr Context -> acc -> TimerCallback acc -> Word64 -> (Ptr Timer -> IO b) -> IO b
 withTimer context accumInitalValue callback period action =
