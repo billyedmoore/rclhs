@@ -5,6 +5,8 @@ module RclHs.Bindings
     Publisher,
     Subscription,
     Timer,
+    SomeSubscription (..),
+    SomeServiceServer (..),
     spin,
     spinFor,
     withContext,
@@ -43,13 +45,25 @@ data Timer
 
 data Context
 
-data Publisher
+data Publisher msg
 
-data Subscription
+data Subscription msg
 
-data ServiceServer
+-- Subscription with the specific msg erased
+data UntypedSubscription
 
-data ServiceClient
+data ServiceServer srv
+
+-- Service server with the specific srv erased
+data UntypedServiceServer
+
+data ServiceClient srv
+
+data SomeSubscription where
+  SomeSubscription :: (RosMessage msg) => Ptr (Subscription msg) -> SomeSubscription
+
+data SomeServiceServer where
+  SomeServiceServer :: (RosService srv) => Ptr (ServiceServer srv) -> SomeServiceServer
 
 -- Callback Types
 type SubCallback acc msg = acc -> msg -> IO acc
@@ -85,9 +99,9 @@ foreign import capi "wrap.h create_publisher"
     Ptr Node ->
     Ptr (RosidlMessageTypeSupport msg) ->
     CString ->
-    IO (Ptr Publisher)
+    IO (Ptr (Publisher msg))
 
-foreign import capi "wrap.h destroy_publisher" c_destoryPublisherRawPtr :: Ptr Node -> Ptr Publisher -> IO ()
+foreign import capi "wrap.h destroy_publisher" c_destoryPublisherRawPtr :: Ptr Node -> Ptr (Publisher msg) -> IO ()
 
 foreign import capi "wrap.h create_subscription"
   c_createSubscriptionRawPtr ::
@@ -98,17 +112,18 @@ foreign import capi "wrap.h create_subscription"
     FunPtr (CreateMessageCallback msg) ->
     FunPtr (DestroyMessageCallback msg) ->
     FunPtr (CSubCallback a msg) ->
-    IO (Ptr Subscription)
+    IO (Ptr (Subscription msg))
 
-foreign import capi "wrap.h destroy_subscription" c_destorySubscriptionRawPtr :: Ptr Node -> Ptr Subscription -> IO ()
+foreign import capi "wrap.h destroy_subscription"
+  c_destorySubscriptionRawPtr ::
+    Ptr Node -> Ptr (Subscription msg) -> IO ()
 
-foreign import capi "wrap.h publish" c_publish :: Ptr Publisher -> Ptr msg -> IO ()
+foreign import capi "wrap.h publish" c_publish :: Ptr (Publisher msg) -> Ptr msg -> IO ()
 
 foreign import capi "wrap.h create_context" c_createContextRawPtr :: IO (Ptr Context)
 
 foreign import capi "wrap.h shutdown_context" c_shutdownContextRawPtr :: Ptr Context -> IO ()
 
--- NOTE: this doesnt enforce the types properly
 foreign import capi "wrap.h create_service_server"
   c_createServiceServer ::
     Ptr Node ->
@@ -118,9 +133,9 @@ foreign import capi "wrap.h create_service_server"
     FunPtr (DestroyMessageCallback req) ->
     FunPtr (DestroyMessageCallback res) ->
     FunPtr (CServiceServerCallback srv) ->
-    IO (Ptr ServiceServer)
+    IO (Ptr (ServiceServer srv))
 
-foreign import capi "wrap.h destroy_service_server" c_destroyServiceServer :: Ptr Node -> Ptr ServiceServer -> IO ()
+foreign import capi "wrap.h destroy_service_server" c_destroyServiceServer :: Ptr Node -> Ptr (ServiceServer srv) -> IO ()
 
 foreign import capi "wrap.h create_service_client"
   c_createServiceClient ::
@@ -129,11 +144,11 @@ foreign import capi "wrap.h create_service_client"
     CString ->
     FunPtr (CreateMessageCallback res) ->
     FunPtr (DestroyMessageCallback res) ->
-    IO (Ptr ServiceClient)
+    IO (Ptr (ServiceClient msg))
 
-foreign import capi "wrap.h destroy_service_client" c_destroyServiceClient :: Ptr Node -> Ptr ServiceClient -> IO ()
+foreign import capi "wrap.h destroy_service_client" c_destroyServiceClient :: Ptr Node -> Ptr (ServiceClient msg) -> IO ()
 
-foreign import capi "wrap.h call_service_server" c_callService :: Ptr Node -> Ptr Context -> Ptr ServiceClient -> Ptr req -> FunPtr (CServiceClientCallback srv) -> Int64 -> IO (CBool)
+foreign import capi "wrap.h call_service_server" c_callService :: Ptr Node -> Ptr Context -> Ptr (ServiceClient msg) -> Ptr req -> FunPtr (CServiceClientCallback srv) -> Int64 -> IO CBool
 
 foreign import capi "wrap.h create_timer"
   c_createTimer :: Ptr Context -> FunPtr (CTimerCallback a) -> Word64 -> StablePtr a -> IO (Ptr Timer)
@@ -143,11 +158,11 @@ foreign import capi "wrap.h destroy_timer" c_destoryTimer :: Ptr Timer -> IO ()
 foreign import capi "wrap.h spin"
   c_spin ::
     Ptr Context ->
-    Ptr (Ptr Subscription) ->
+    Ptr (Ptr UntypedSubscription) ->
     CSize ->
     Ptr (Ptr Timer) ->
     CSize ->
-    Ptr (Ptr ServiceServer) ->
+    Ptr (Ptr UntypedServiceServer) ->
     CSize ->
     CBool ->
     Word64 ->
@@ -177,32 +192,54 @@ foreign import ccall "wrapper"
 freeHsOwnedPtr :: StablePtr a -> IO ()
 freeHsOwnedPtr = freeStablePtr
 
-publish :: forall msg. (RosMessage msg) => Ptr Publisher -> msg -> IO ()
+publish :: forall msg. (RosMessage msg) => Ptr (Publisher msg) -> msg -> IO ()
 publish publisher message =
   withCStruct message $ \messagePtr -> do
     c_publish publisher messagePtr
 
-spin :: Ptr Context -> [Ptr Subscription] -> [Ptr Timer] -> [Ptr ServiceServer] -> IO ()
-spin context subs timers services =
-  withArrayLen subs $ \n_subs c_subs ->
-    withArrayLen timers $ \n_timers c_timers ->
-      withArrayLen services $ \n_services c_services ->
-        c_spin context c_subs (fromIntegral n_subs) c_timers (fromIntegral n_timers) c_services (fromIntegral n_services) (CBool 1) 0
+spin :: Ptr Context -> [SomeSubscription] -> [Ptr Timer] -> [SomeServiceServer] -> IO ()
+spin context wrappedSubs timers wrappedService =
+  let subs = map (\(SomeSubscription p) -> castPtr p :: Ptr UntypedSubscription) wrappedSubs
+      services = map (\(SomeServiceServer p) -> castPtr p :: Ptr UntypedServiceServer) wrappedService
+   in withArrayLen subs $ \n_subs c_subs ->
+        withArrayLen timers $ \n_timers c_timers ->
+          withArrayLen services $ \n_services c_services ->
+            c_spin
+              context
+              c_subs
+              (fromIntegral n_subs)
+              c_timers
+              (fromIntegral n_timers)
+              c_services
+              (fromIntegral n_services)
+              (CBool 1)
+              0
 
 -- spinFor `duration` nano seconds
-spinFor :: Ptr Context -> [Ptr Subscription] -> [Ptr Timer] -> [Ptr ServiceServer] -> Word64 -> IO ()
-spinFor context subs timers services duration =
-  withArrayLen subs $ \n_subs c_subs ->
-    withArrayLen timers $ \n_timers c_timers ->
-      withArrayLen services $ \n_services c_services ->
-        c_spin context c_subs (fromIntegral n_subs) c_timers (fromIntegral n_timers) c_services (fromIntegral n_services) (CBool 0) duration
+spinFor :: Ptr Context -> [SomeSubscription] -> [Ptr Timer] -> [SomeServiceServer] -> Word64 -> IO ()
+spinFor context wrappedSubs timers wrappedService duration =
+  let subs = map (\(SomeSubscription p) -> castPtr p :: Ptr UntypedSubscription) wrappedSubs
+      services = map (\(SomeServiceServer p) -> castPtr p :: Ptr UntypedServiceServer) wrappedService
+   in withArrayLen subs $ \n_subs c_subs ->
+        withArrayLen timers $ \n_timers c_timers ->
+          withArrayLen services $ \n_services c_services ->
+            c_spin
+              context
+              c_subs
+              (fromIntegral n_subs)
+              c_timers
+              (fromIntegral n_timers)
+              c_services
+              (fromIntegral n_services)
+              (CBool 0)
+              duration
 
 callService ::
   forall srv.
   (RosService srv, RosMessage (SrvRequest srv), RosMessage (SrvResponse srv)) =>
   Ptr Node ->
   Ptr Context ->
-  Ptr ServiceClient ->
+  Ptr (ServiceClient srv) ->
   SrvRequest srv ->
   (SrvResponse srv -> IO ()) ->
   Int64 ->
@@ -237,7 +274,7 @@ withServiceServer ::
   String ->
   Ptr Node ->
   (SrvRequest srv -> IO (SrvResponse srv)) ->
-  (Ptr ServiceServer -> IO a) ->
+  (Ptr (ServiceServer srv) -> IO a) ->
   IO a
 withServiceServer service_name node callback action = do
   ts <- getServiceTypeSupport @srv
@@ -273,7 +310,7 @@ withServiceClient ::
   ) =>
   String ->
   Ptr Node ->
-  (Ptr ServiceClient -> IO a) ->
+  (Ptr (ServiceClient srv) -> IO a) ->
   IO a
 withServiceClient service_name node action = do
   ts <- getServiceTypeSupport @srv
@@ -294,7 +331,7 @@ withServiceClient service_name node action = do
               action
 
 -- Require users to explicity state the type of the publisher with @ syntax
-withPublisher :: forall msg a. (RosMessage msg) => String -> Ptr Node -> (Ptr Publisher -> IO a) -> IO a
+withPublisher :: forall msg a. (RosMessage msg) => String -> Ptr Node -> (Ptr (Publisher msg) -> IO a) -> IO a
 withPublisher topic node action = do
   ts <- getTypeSupport @msg
   withCString topic $ \c_topic ->
@@ -309,7 +346,7 @@ withSubscription ::
   Ptr Node ->
   acc ->
   SubCallback acc msg ->
-  (Ptr Subscription -> IO b) ->
+  (Ptr (Subscription msg) -> IO b) ->
   IO b
 withSubscription topic node initalAcc callback action = do
   ts <- getTypeSupport @msg

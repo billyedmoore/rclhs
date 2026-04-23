@@ -1,7 +1,8 @@
 module Main where
 
 import RclHs
-  ( spin,
+  ( SomeServiceServer (SomeServiceServer),
+    spin,
     withContext,
     withNode,
     withServiceServer,
@@ -22,4 +23,4 @@ main = do
   withContext $ \ctx -> do
     withNode "node_name" "" ctx $ \node -> do
       withServiceServer @AddTwoInts "add_two_ints" node serverCallback $ \service -> do
-        spin ctx [] [] [service]
+        spin ctx [] [] [SomeServiceServer service]
