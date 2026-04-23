@@ -30,6 +30,7 @@ library
     default-extensions: CApiFFI
                         AllowAmbiguousTypes
                         TypeFamilies
+                        GADTs
     include-dirs:     c-wrap
     c-sources:        c-wrap/wrap.c
     includes:         wrap.h

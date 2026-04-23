@@ -13,7 +13,7 @@ import RclHs
   )
 import RclHs.ExampleTypes.Msg.StringMessage
 
-pubCallback :: Ptr Publisher -> Int -> IO Int
+pubCallback :: Ptr (Publisher StringMessage) -> Int -> IO Int
 pubCallback pub i = do
   publish pub (StringMessage ("Hello, world! " ++ show i))
   return (i + 1)
