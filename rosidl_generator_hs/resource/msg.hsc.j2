@@ -26,16 +26,14 @@ import Foreign.C.Types
 import Foreign.Marshal.Alloc (mallocBytes, free)
 import Foreign.Marshal.Utils (copyBytes)
 import Foreign.Marshal.Array (copyArray)
-import Foreign.ForeignPtr (newForeignPtr_)
 import Data.Int (Int8, Int16, Int32, Int64)
 import Data.Word (Word8, Word16, Word32, Word64)
 import RclHs.Types 
   ( RosidlMessageTypeSupport
   , RosMessage(..)
-  , initRosString
-  , destroyRosString
+  , pokeRosString
   , peekRosString
-  , withRosSequence
+  , pokeRosSequence
   , peekRosSequence
   , RosString
   , RosSequence
@@ -63,6 +61,7 @@ data {{ msg_name }} = {{ msg_name }} {
   {% endfor -%}
 } deriving (Show, Eq)
 
+-- WARNING: memory is allocated in Haskell but freed in C :(
 withCStruct{{ msg_name }} :: {{ msg_name }} -> (Ptr {{ msg_name }} -> IO b) -> IO b
 withCStruct{{ msg_name }} msg action = 
   bracket (newCStruct{{ msg_name }} msg) (destroyMessage @{{ msg_name }}) action
@@ -73,14 +72,14 @@ newCStruct{{ msg_name }} msg = do
   {%- for field in fields -%}
   {%- if field.is_string %}
   let destPtr_{{ field.name }} = (#ptr {{ c_prefix }}, {{ field.name }}) ptr
-  initRosString destPtr_{{field.name}} ({{ field.name }} msg)
+  pokeRosString destPtr_{{field.name}} ({{ field.name }} msg)
   {%- elif field.is_array %}
-  let destPtr_{{ field.name }} = (#{ptr {{ c_prefix }}, {{ field.name }}} ptr)
+  let destPtr_{{ field.name }} = (#ptr {{ c_prefix }}, {{ field.name }}) ptr
   Vector.unsafeWith (SizedVector.fromSized ({{ field.name }} msg)) $ \srcPtr ->
     copyArray destPtr_{{ field.name }} srcPtr {{ field.capacity }}
   {%- elif field.is_sequence %}
-  withRosSequence ({{ field.name }} msg) $ \(seqPtr :: Ptr RosSequence) -> do
-    (#poke {{ c_prefix }}, {{ field.name }}) ptr seqPtr
+  let destPtr_{{ field.name }} = (#{ptr {{ c_prefix }}, {{ field.name }}} ptr)
+  pokeRosSequence destPtr_{{ field.name }} ({{field.name}} msg)
   {%- else %}
   (#poke {{ c_prefix }}, {{ field.name }}) ptr ({{ field.name }} msg :: {{ field.type }})
   {%- endif %}
@@ -94,10 +93,10 @@ peekCStruct{{ msg_name }} ptr = do
   let strPtr_{{ field.name }} = (#ptr {{ c_prefix }}, {{ field.name }}) ptr
   {{ field.name }}_val <- peekRosString strPtr_{{ field.name }}
   {%- elif field.is_array %}
-  let ptr_{{ field.name }} = ((#ptr {{ c_prefix }}, {{ field.name }}) ptr)
+  let ptr_{{ field.name }} = (#ptr {{ c_prefix }}, {{ field.name }}) ptr
   {{ field.name }}_val <- copyCArrayToSized ptr_{{field.name}}
   {%- elif field.is_sequence %}
-  seqPtr_{{ field.name }} <- (#peek {{ c_prefix }}, {{ field.name }}) ptr :: IO (Ptr RosSequence)
+  let seqPtr_{{ field.name }} = (#ptr {{ c_prefix }}, {{ field.name }}) ptr
   {{ field.name }}_val <- peekRosSequence seqPtr_{{ field.name }}
   {%- else %}
   {{ field.name }}_val <- (#peek {{ c_prefix }}, {{ field.name }}) ptr :: IO {{ field.type }}

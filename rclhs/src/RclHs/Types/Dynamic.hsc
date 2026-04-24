@@ -10,15 +10,13 @@ import Foreign.Storable (Storable(..))
 import Foreign.Marshal.Array (peekArray, pokeArray)
 import GHC.TypeLits (KnownNat, natVal)
 import Data.Proxy (Proxy(..))
-import Foreign.Marshal.Alloc (allocaBytes, callocBytes, free)
-import Control.Exception (bracket)
+import Foreign.Marshal.Alloc (callocBytes)
 import Control.Monad (when)
 import Data.Maybe (fromJust)
 
 import qualified Data.Vector.Storable.Sized as SizedVector
 
--- Opaque Pointers to the Ros structs for strings 
--- and sequences
+-- Opaque Pointers to the Ros structs for strings and sequences
 data RosString
 data RosSequence
 
@@ -31,16 +29,16 @@ foreign import ccall "rosidl_runtime_c__String__fini" c_str_fini ::
 foreign import ccall "rosidl_runtime_c__String__assign" c_str_assign ::
     Ptr RosString -> CString -> IO CBool
 
--- Init a RosString within an existing bit of memory and
--- assign the String value
-initRosString :: Ptr RosString -> String -> IO ()
-initRosString ptr str = do
+-- Poke a RosString into a struct and asign a value
+pokeRosString :: Ptr RosString -> String -> IO ()
+pokeRosString ptr str = do
   _ <- c_str_init ptr
   success <- withCString str $ \cstr -> c_str_assign ptr cstr
   when (success == 0) $ 
     error "Failed to init RosString"
 
--- Teardown a RosString
+-- Teardown a RosString 
+-- NOTE: Not called anywhere.
 destroyRosString :: Ptr RosString -> IO ()
 destroyRosString ptr = do
   _ <- c_str_fini ptr
@@ -54,23 +52,21 @@ peekRosString ptr
   c_str <- (#peek rosidl_runtime_c__String, data) ptr
   if c_str == nullPtr then return "" else peekCString c_str
 
--- Convert list to RosSequence for use in action
-withRosSequence :: forall a b. Storable a => [a] -> (Ptr RosSequence -> IO b) -> IO b
-withRosSequence items action = do
+-- Poke RosSequence into the struct
+pokeRosSequence :: forall a. Storable a => Ptr RosSequence -> [a] -> IO ()
+pokeRosSequence destPtr items = do
   let size = length items
-  allocaBytes (#size rosidl_runtime_c__double__Sequence) $ \outerStructPtr -> do
-    -- Use the heap to allow potentially large sequences of large objects
-    bracket (callocBytes (size * sizeOf (undefined :: a))) free $ \dataPtr -> do
-      pokeArray dataPtr items
-      -- NOTE: all versions of this "should" be the same so this double version
-      -- should be okay to use for all types
-      (#poke rosidl_runtime_c__double__Sequence, data) outerStructPtr dataPtr
-      (#poke rosidl_runtime_c__double__Sequence, size) outerStructPtr (fromIntegral size :: CSize)
-      (#poke rosidl_runtime_c__double__Sequence, capacity) outerStructPtr (fromIntegral size :: CSize)
-      action outerStructPtr
+  putStrLn ("SIZE - " ++ show (size))
+  
+  dataPtr <- callocBytes (size * sizeOf (undefined :: a))
+  pokeArray dataPtr items
+
+  (#poke rosidl_runtime_c__double__Sequence, data) destPtr dataPtr
+  (#poke rosidl_runtime_c__double__Sequence, size) destPtr (fromIntegral size :: CSize)
+  (#poke rosidl_runtime_c__double__Sequence, capacity) destPtr (fromIntegral size :: CSize)
 
 -- Get list from RosSequence
-peekRosSequence :: forall a. Storable a => Ptr RosSequence -> IO [a]
+peekRosSequence :: Storable a => Ptr RosSequence -> IO [a]
 peekRosSequence outerStructPtr
   | outerStructPtr == nullPtr = return []
   | otherwise = do
@@ -79,8 +75,9 @@ peekRosSequence outerStructPtr
   if dataPtr == nullPtr then return [] else peekArray (fromIntegral size) dataPtr
 
 
--- Copy a C array (ie. Ptr) to a SizedVector
-copyCArrayToSized :: forall n a. (KnownNat n, Storable a) => Ptr a -> IO (SizedVector.Vector n a)
+-- Copy a C array (aka. a Ptr) to a SizedVector
+-- Trusts that the array is the correct len
+copyCArrayToSized :: forall a n. (KnownNat n, Storable a) => Ptr a -> IO (SizedVector.Vector n a)
 copyCArrayToSized ptr = do
     let len = fromIntegral (natVal (Proxy @n))
     elements <- peekArray len ptr

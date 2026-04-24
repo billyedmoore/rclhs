@@ -3,8 +3,8 @@ module RclHs.Types
     destroyMessage,
     peekRosString,
     peekRosSequence,
-    withRosSequence,
-    initRosString,
+    pokeRosSequence,
+    pokeRosString,
     destroyRosString,
     copyCArrayToSized,
     RosSequence,
@@ -25,10 +25,10 @@ import RclHs.Types.Dynamic
     RosString,
     copyCArrayToSized,
     destroyRosString,
-    initRosString,
     peekRosSequence,
     peekRosString,
-    withRosSequence,
+    pokeRosSequence,
+    pokeRosString,
   )
 
 -- Opaque Ptrs for type supports
