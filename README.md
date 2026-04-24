@@ -2,6 +2,28 @@
 
 Haskell bindings for [rcl](https://github.com/ros2/rcl) (Ros2).
 
+## A Very Quick Primer
+
+This is a prototype developed for a dissertation as such 
+documentation is limited, but here is the basic ideas.
+
+The ROS2 session is managed by the `withContext` function,
+when this `Context` object exists the ROS2 session is
+active. This is equivalent to the `init` to `shutdown`
+cycle used in typical `rcl` libraries.
+
+In order to create a node you can call `withNode`, the same
+goes for other entities for example `withPublisher`.
+
+The component `rosidl_generator_hs` generates Haskell types
+for message, these are native records that instantiate
+the type class `RosMessage`. The type for services is 
+similarly `RosService` which is made up of two messages.
+
+In order for the `cabal` build to run a `cabal.project.local`
+file is generated pulling in generated Haskell code, the 
+`rclhs` library itself and the required C libraries.
+
 ## Limitations
 
 ### Rosidl Generator HS
